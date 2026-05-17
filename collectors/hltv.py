@@ -288,6 +288,7 @@ async def collect_cs2_data(db: AsyncSession):
         logger.info(f"CS2 data collected: {len(upcoming)} upcoming, {len(results)} results, {len(rankings)} teams, {len(ratings)} players")
 
         # TODO: Сохранить в БД
+
         return {
             "upcoming_matches": upcoming,
             "match_results": results,
@@ -295,5 +296,41 @@ async def collect_cs2_data(db: AsyncSession):
             "player_ratings": ratings,
         }
 
+    finally:
+        await collector.close()
+
+
+# Функции для scheduler (совместимость со старым кодом)
+async def run_hltv_sync(db: AsyncSession):
+    """Синхронизировать CS2 данные из HLTV (вызывается scheduler)."""
+    # ВНИМАНИЕ: HLTV не предоставляет публичный API.
+    # Используем Cybersport как источник рейтингов вместо этого.
+    from collectors.cybersport import collect_cs2_stats
+    from aggregator.stats_saver import save_cs2_team_ratings
+
+    logger.info("[HLTV Sync] Starting CS2 data collection (using Cybersport)")
+    try:
+        # Собираем из Cybersport (у них есть и HLTV и Valve рейтинги)
+        data = await collect_cs2_stats(db)
+
+        hltv_rankings = data.get("hltv_rankings", [])
+        valve_rankings = data.get("valve_rankings", [])
+
+        teams_saved = await save_cs2_team_ratings(db, hltv_rankings, valve_rankings)
+        logger.info(f"[HLTV Sync] Saved: {teams_saved} teams from Cybersport")
+    except Exception as e:
+        logger.error(f"[HLTV Sync] Error: {e}", exc_info=True)
+
+
+async def run_hltv_history_sync(db: AsyncSession, pages: int = 10):
+    """Синхронизировать исторические данные CS2 (результаты матчей)."""
+    logger.info(f"[HLTV History] Starting CS2 historical data collection ({pages} pages)")
+    collector = HLTVCollector()
+    try:
+        results = await collector.fetch_match_results(limit=pages * 50)
+        logger.info(f"[HLTV History] Fetched {len(results)} historical match results")
+        # TODO: Сохранить в БД
+    except Exception as e:
+        logger.error(f"[HLTV History] Error: {e}", exc_info=True)
     finally:
         await collector.close()

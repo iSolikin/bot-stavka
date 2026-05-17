@@ -313,3 +313,25 @@ async def collect_cs2_stats(db: AsyncSession):
 
     finally:
         await collector.close()
+
+
+# Функции для scheduler
+async def sync_cs2_rankings(db: AsyncSession):
+    """Синхронизировать CS2 рейтинги из Cybersport."""
+    from aggregator.stats_saver import save_cs2_team_ratings
+
+    logger.info("[Cybersport Sync] Starting CS2 rankings collection")
+    try:
+        data = await collect_cs2_stats(db)
+        hltv_rankings = data.get("hltv_rankings", [])
+        valve_rankings = data.get("valve_rankings", [])
+
+        # ГЛАВНОЕ - СОХРАНЯЕМ данные в БД!
+        teams_saved = await save_cs2_team_ratings(db, hltv_rankings, valve_rankings)
+
+        logger.info(
+            f"[Cybersport Sync] Completed: {len(hltv_rankings)} HLTV, "
+            f"{len(valve_rankings)} Valve rankings → saved {teams_saved} teams"
+        )
+    except Exception as e:
+        logger.error(f"[Cybersport Sync] Error: {e}", exc_info=True)

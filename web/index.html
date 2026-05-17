@@ -163,7 +163,8 @@ body {
   box-shadow: 0 0 12px var(--shu-glow);
 }
 .nav-btn .ic { font-size: 18px; line-height: 1; }
-.nav-btn .kanji { font-family: var(--noto); font-weight: 600; font-size: 11px; letter-spacing: 0.04em; }
+.nav-btn .txt { font-size: 12px; font-weight: 600; letter-spacing: 0; }
+.nav-btn .kanji { font-family: var(--noto); font-weight: 600; font-size: 11px; letter-spacing: 0.04em; display: none; }
 .nav-btn .dot {
   position: absolute; top: 8px; right: 8px;
   min-width: 16px; height: 16px; padding: 0 4px; border-radius: 10px;
@@ -225,6 +226,7 @@ main { min-width: 0; display: flex; flex-direction: column; }
   font-family: var(--noto); font-weight: 900;
   font-size: 30px; color: var(--shu); line-height: 1;
   text-shadow: 0 0 24px var(--shu-soft);
+  display: none;
 }
 .crumbs .ts { display: flex; flex-direction: column; min-width: 0; }
 .crumbs .ts h1 {
@@ -787,31 +789,31 @@ main { min-width: 0; display: flex; flex-direction: column; }
     </div>
     <nav class="nav">
       <button class="nav-btn active" data-page="dashboard" data-label="Главная" onclick="navigate('dashboard')">
-        <span class="ic">◇</span><span class="kanji">本</span>
+        <span class="ic">📊</span><span class="txt">Главная</span>
       </button>
       <button class="nav-btn" data-page="today" data-label="Сегодня" onclick="navigate('today')">
-        <span class="ic">◎</span><span class="kanji">今</span>
+        <span class="ic">📈</span><span class="txt">Сегодня</span>
         <span class="dot" id="badge-today" style="display:none">0</span>
       </button>
       <button class="nav-btn" data-page="cs2" data-label="CS2 матчи" onclick="navigate('cs2')">
-        <span class="ic">⚔</span><span class="kanji">CS</span>
+        <span class="ic">⚔️</span><span class="txt">CS2</span>
         <span class="dot live" id="badge-live-cs2" style="display:none">●</span>
       </button>
       <button class="nav-btn" data-page="dota2" data-label="Dota 2 матчи" onclick="navigate('dota2')">
-        <span class="ic">✦</span><span class="kanji">D2</span>
+        <span class="ic">✦</span><span class="txt">Dota 2</span>
         <span class="dot live" id="badge-live-dota2" style="display:none">●</span>
       </button>
       <button class="nav-btn" data-page="results" data-label="Результаты" onclick="navigate('results')">
-        <span class="ic">▤</span><span class="kanji">結</span>
+        <span class="ic">✅</span><span class="txt">Результаты</span>
       </button>
       <button class="nav-btn" data-page="bets" data-label="Ставки" onclick="navigate('bets')">
-        <span class="ic">¥</span><span class="kanji">賭</span>
+        <span class="ic">💰</span><span class="txt">Ставки</span>
       </button>
       <button class="nav-btn" data-page="teams" data-label="Команды" onclick="navigate('teams')">
-        <span class="ic">⌖</span><span class="kanji">隊</span>
+        <span class="ic">👥</span><span class="txt">Команды</span>
       </button>
       <button class="nav-btn" data-page="news" data-label="Новости" onclick="navigate('news')">
-        <span class="ic">⌘</span><span class="kanji">報</span>
+        <span class="ic">📰</span><span class="txt">Новости</span>
         <span class="dot" id="badge-news" style="display:none">●</span>
       </button>
     </nav>
