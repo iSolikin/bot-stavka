@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Environment & secrets
+.env
+*.env
+
+# Database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Telegram session files
+*.session
+*.session-journal
+esports_bot_session*
+
+# Logs
+*.log
+bot_out.txt
+bot_err.txt
+web_out.txt
+web_err.txt
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp
+*.tmp
+*.bak
