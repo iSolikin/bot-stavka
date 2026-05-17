@@ -1,0 +1,45 @@
+# Секретные данные — никогда не в git
+.env
+*.env
+secrets.py
+
+# База данных
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+*.spec
+venv/
+.venv/
+env/
+.env/
+pip-log.txt
+
+# Логи
+*.log
+logs/
+
+# Docker данные
+*.pid
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Бэкапы
+*.bak
+*_backup.*
+web/index_old.html

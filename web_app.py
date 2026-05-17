@@ -1,0 +1,498 @@
+"""
+Веб-сервер для esports-сайта.
+Запуск: uvicorn web_app:app --host 0.0.0.0 --port 8000 --reload
+Читает ту же bot.db что и бот, работает параллельно с ним.
+"""
+import logging
+import os
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import select, and_, or_, func, desc
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.pool import StaticPool
+
+# --- Пути ---
+BASE_DIR = Path(__file__).parent
+WEB_DIR = BASE_DIR / "web"
+
+# --- Загружаем .env ---
+from dotenv import load_dotenv
+load_dotenv(BASE_DIR / ".env")
+
+# --- Конфиг ---
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+# Для SQLite делаем путь абсолютным (важно для Windows и uvicorn --reload)
+if not DATABASE_URL or DATABASE_URL.startswith("sqlite"):
+    if not DATABASE_URL:
+        DATABASE_URL = f"sqlite+aiosqlite:///{(BASE_DIR / 'bot.db').as_posix()}"
+    elif "///" in DATABASE_URL:
+        rel = DATABASE_URL.split("///", 1)[1].lstrip("./\\")
+        abs_path = (BASE_DIR / rel).resolve().as_posix()
+        prefix = DATABASE_URL.split("///")[0]
+        DATABASE_URL = f"{prefix}///{abs_path}"
+
+logger = logging.getLogger(__name__)
+
+# --- Движок БД ---
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+if _is_sqlite:
+    engine = create_async_engine(
+        DATABASE_URL,
+        echo=False,
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+else:
+    from sqlalchemy.pool import NullPool
+    engine = create_async_engine(DATABASE_URL, echo=False, poolclass=NullPool)
+
+SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+# --- FastAPI ---
+app = FastAPI(title="Esports Analytics", version="1.0.0", docs_url="/api/docs")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# -------- Helpers --------
+
+def _match_dict(m) -> dict:
+    return {
+        "id": m.id,
+        "game": m.game,
+        "team1": m.team1_name,
+        "team2": m.team2_name,
+        "tournament": m.tournament,
+        "match_format": m.match_format,
+        "scheduled_at": m.scheduled_at.isoformat() if m.scheduled_at else None,
+        "status": m.status,
+        "score_team1": m.score_team1,
+        "score_team2": m.score_team2,
+        "match_url": m.match_url,
+        "source": m.source,
+    }
+
+
+def _team_dict(t) -> dict:
+    total = (t.wins or 0) + (t.losses or 0)
+    wr = round(t.wins / total * 100, 1) if total else 0
+    return {
+        "id": t.id,
+        "name": t.name,
+        "game": t.game,
+        "rating": t.rating,
+        "wins": t.wins or 0,
+        "losses": t.losses or 0,
+        "winrate": wr,
+        "source": t.source,
+        "tag": t.tag,
+        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+    }
+
+
+def _bet_dict(b) -> dict:
+    return {
+        "id": b.id,
+        "team1": b.team1_name,
+        "team2": b.team2_name,
+        "game": b.game,
+        "tournament": b.tournament,
+        "bet_on": b.bet_on,
+        "bet_team": b.bet_team_name,
+        "pred_prob": b.pred_prob,
+        "confidence": b.confidence,
+        "odds": b.odds,
+        "stake": b.stake,
+        "status": b.status,
+        "profit": b.profit,
+        "actual_score": b.actual_score,
+        "created_at": b.created_at.isoformat() if b.created_at else None,
+        "settled_at": b.settled_at.isoformat() if b.settled_at else None,
+        "scheduled_at": b.scheduled_at.isoformat() if b.scheduled_at else None,
+    }
+
+
+# -------- Static --------
+
+@app.get("/", include_in_schema=False)
+@app.get("/web", include_in_schema=False)
+async def serve_index():
+    path = WEB_DIR / "index.html"
+    if path.exists():
+        return FileResponse(str(path))
+    return JSONResponse({"status": "ok", "api": "/api/docs"})
+
+
+# -------- Матчи --------
+
+@app.get("/api/matches/upcoming")
+async def matches_upcoming(
+    game: Optional[str] = None,
+    hours: int = Query(48, ge=1, le=168),
+):
+    """Предстоящие и live матчи."""
+    from db.models import Match
+    async with SessionLocal() as db:
+        now = datetime.utcnow()
+        filters = [
+            Match.status.in_(["upcoming", "live"]),
+            Match.scheduled_at >= now - timedelta(hours=3),
+            Match.scheduled_at <= now + timedelta(hours=hours),
+        ]
+        if game:
+            filters.append(Match.game == game)
+        result = await db.execute(
+            select(Match).where(and_(*filters)).order_by(Match.scheduled_at).limit(60)
+        )
+        return [_match_dict(m) for m in result.scalars().all()]
+
+
+@app.get("/api/matches/results")
+async def matches_results(
+    game: Optional[str] = None,
+    limit: int = Query(40, ge=1, le=100),
+):
+    """Завершённые матчи."""
+    from db.models import Match
+    async with SessionLocal() as db:
+        q = select(Match).where(Match.status == "finished")
+        if game:
+            q = q.where(Match.game == game)
+        q = q.order_by(desc(Match.scheduled_at)).limit(limit)
+        result = await db.execute(q)
+        return [_match_dict(m) for m in result.scalars().all()]
+
+
+@app.get("/api/matches/{match_id}")
+async def match_detail(match_id: int):
+    from db.models import Match
+    async with SessionLocal() as db:
+        result = await db.execute(select(Match).where(Match.id == match_id))
+        m = result.scalar_one_or_none()
+        if not m:
+            raise HTTPException(404, "Match not found")
+        return _match_dict(m)
+
+
+# -------- Предикт --------
+
+@app.get("/api/predict")
+async def predict_match(
+    team1: str,
+    team2: str,
+    game: str = "cs2",
+    match_id: Optional[int] = None,
+):
+    """Полный предикт по матчу."""
+    import sys
+    sys.path.insert(0, str(BASE_DIR))
+
+    from aggregator.aggregator import Aggregator
+    from analyzer.predictor import predict
+
+    async with SessionLocal() as db:
+        agg = Aggregator(db)
+        report = await agg.get_match_report(team1, team2, game)
+        t1 = report.team1_stats
+        t2 = report.team2_stats
+
+        pred = predict(
+            team1=team1,
+            team2=team2,
+            team1_form=t1.form if t1 else "",
+            team2_form=t2.form if t2 else "",
+            team1_rating=t1.rating if t1 else None,
+            team2_rating=t2.rating if t2 else None,
+            h2h_matches=report.head_to_head,
+        )
+
+        def _team_stats(ts):
+            if not ts:
+                return None
+            recent = []
+            for m in ts.recent_matches[:5]:
+                rm = dict(m)
+                if isinstance(rm.get("date"), datetime):
+                    rm["date"] = rm["date"].isoformat()
+                recent.append(rm)
+            return {
+                "rating": ts.rating,
+                "wins": ts.wins,
+                "losses": ts.losses,
+                "form": ts.form,
+                "recent_matches": recent,
+                "players": ts.players[:6],
+            }
+
+        # H2H даты
+        h2h = []
+        for m in report.head_to_head[:10]:
+            rm = dict(m)
+            if isinstance(rm.get("date"), datetime):
+                rm["date"] = rm["date"].isoformat()
+            h2h.append(rm)
+
+        return {
+            "team1": team1,
+            "team2": team2,
+            "game": game,
+            "winner": pred.winner,
+            "team1_prob": pred.team1_prob,
+            "team2_prob": pred.team2_prob,
+            "confidence": pred.confidence,
+            "reasoning": pred.reasoning,
+            "team1_stats": _team_stats(t1),
+            "team2_stats": _team_stats(t2),
+            "head_to_head": h2h,
+            "tournament": report.tournament,
+            "match_format": report.match_format,
+            "scheduled_at": report.scheduled_at.isoformat() if report.scheduled_at else None,
+        }
+
+
+# -------- Предикты на сегодня --------
+
+@app.get("/api/today")
+async def today_predictions(game: Optional[str] = None):
+    """Предикты по всем матчам ближайших 36 часов."""
+    from db.models import Match, VirtualBet
+    from aggregator.aggregator import Aggregator
+    from analyzer.predictor import predict
+
+    async with SessionLocal() as db:
+        now = datetime.utcnow()
+        filters = [
+            Match.status.in_(["upcoming", "live"]),
+            Match.scheduled_at >= now - timedelta(hours=3),
+            Match.scheduled_at <= now + timedelta(hours=36),
+        ]
+        if game:
+            filters.append(Match.game == game)
+
+        result = await db.execute(
+            select(Match).where(and_(*filters)).order_by(Match.scheduled_at).limit(30)
+        )
+        matches = result.scalars().all()
+
+        agg = Aggregator(db)
+        out = []
+
+        for m in matches:
+            if not m.team1_name or not m.team2_name:
+                continue
+            if "TBD" in (m.team1_name.upper(), m.team2_name.upper()):
+                continue
+            try:
+                report = await agg.get_match_report(m.team1_name, m.team2_name, m.game)
+                t1 = report.team1_stats
+                t2 = report.team2_stats
+
+                pred = predict(
+                    team1=m.team1_name,
+                    team2=m.team2_name,
+                    team1_form=t1.form if t1 else "",
+                    team2_form=t2.form if t2 else "",
+                    team1_rating=t1.rating if t1 else None,
+                    team2_rating=t2.rating if t2 else None,
+                    h2h_matches=report.head_to_head,
+                )
+
+                bet_res = await db.execute(
+                    select(VirtualBet).where(VirtualBet.match_id == m.id)
+                )
+                existing_bet = bet_res.scalar_one_or_none()
+
+                out.append({
+                    "match": _match_dict(m),
+                    "prediction": {
+                        "winner": pred.winner,
+                        "team1_prob": pred.team1_prob,
+                        "team2_prob": pred.team2_prob,
+                        "confidence": pred.confidence,
+                        "reasoning": pred.reasoning,
+                    },
+                    "team1_form": t1.form if t1 else "",
+                    "team2_form": t2.form if t2 else "",
+                    "team1_rating": t1.rating if t1 else None,
+                    "team2_rating": t2.rating if t2 else None,
+                    "h2h_count": len(report.head_to_head),
+                    "bet": {
+                        "bet_on": existing_bet.bet_on,
+                        "bet_team": existing_bet.bet_team_name,
+                        "odds": existing_bet.odds,
+                        "confidence": existing_bet.confidence,
+                        "status": existing_bet.status,
+                    } if existing_bet else None,
+                })
+            except Exception as ex:
+                logger.warning("predict error %s vs %s: %s", m.team1_name, m.team2_name, ex)
+                out.append({"match": _match_dict(m), "prediction": None, "error": str(ex)})
+
+        return out
+
+
+# -------- Ставки --------
+
+@app.get("/api/bets/stats")
+async def bets_stats():
+    from bets.virtual_bets import get_bet_stats
+    async with SessionLocal() as db:
+        stats = await get_bet_stats(db)
+        stats["recent"] = [_bet_dict(b) for b in stats.get("recent", [])]
+        return stats
+
+
+@app.get("/api/bets/list")
+async def bets_list(
+    status: Optional[str] = None,
+    game: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+):
+    from db.models import VirtualBet
+    async with SessionLocal() as db:
+        q = select(VirtualBet)
+        if status:
+            q = q.where(VirtualBet.status == status)
+        if game:
+            q = q.where(VirtualBet.game == game)
+        q = q.order_by(desc(VirtualBet.created_at)).limit(limit)
+        result = await db.execute(q)
+        return [_bet_dict(b) for b in result.scalars().all()]
+
+
+# -------- Команды --------
+
+@app.get("/api/teams")
+async def teams_list(
+    game: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    search: Optional[str] = None,
+):
+    from db.models import Team
+    async with SessionLocal() as db:
+        q = select(Team)
+        if game:
+            q = q.where(Team.game == game)
+        if search:
+            q = q.where(Team.name.ilike(f"%{search}%"))
+        q = q.order_by(desc(Team.rating)).limit(limit)
+        result = await db.execute(q)
+        return [_team_dict(t) for t in result.scalars().all()]
+
+
+@app.get("/api/team/{team_name}")
+async def team_detail(team_name: str, game: str = "cs2"):
+    from aggregator.aggregator import Aggregator
+    async with SessionLocal() as db:
+        agg = Aggregator(db)
+        report = await agg.get_team_report(team_name, game)
+        if not report:
+            raise HTTPException(404, "Team not found")
+
+        recent = []
+        for m in report.recent_matches:
+            rm = dict(m)
+            if isinstance(rm.get("date"), datetime):
+                rm["date"] = rm["date"].isoformat()
+            recent.append(rm)
+
+        h2h = {}
+        for k, v in report.head_to_head.items():
+            vd = dict(v)
+            h2h[k] = vd
+
+        return {
+            "name": report.name,
+            "game": report.game,
+            "rating": report.rating,
+            "wins": report.wins,
+            "losses": report.losses,
+            "form": report.form,
+            "players": report.players,
+            "recent_matches": recent,
+            "head_to_head": h2h,
+            "sources": report.sources,
+            "last_patch": {
+                "version": report.last_patch["version"],
+                "released_at": report.last_patch["released_at"].isoformat()
+                    if report.last_patch.get("released_at") else None,
+                "url": report.last_patch.get("url"),
+            } if report.last_patch else None,
+        }
+
+
+# -------- Патч --------
+
+@app.get("/api/patch/{game}")
+async def patch_latest(game: str):
+    from aggregator.aggregator import Aggregator
+    async with SessionLocal() as db:
+        agg = Aggregator(db)
+        patch = await agg._get_last_patch(game)
+        if not patch:
+            raise HTTPException(404, "No patch data")
+        return {
+            "game": game,
+            "version": patch["version"],
+            "released_at": patch["released_at"].isoformat() if patch.get("released_at") else None,
+            "url": patch.get("url"),
+            "summary": patch.get("summary"),
+        }
+
+
+# -------- Системная статистика --------
+
+@app.get("/api/stats/summary")
+async def system_summary():
+    from db.models import Match, Team, VirtualBet
+    async with SessionLocal() as db:
+        total_m = (await db.execute(select(func.count(Match.id)))).scalar() or 0
+        upcoming_m = (await db.execute(
+            select(func.count(Match.id)).where(Match.status == "upcoming")
+        )).scalar() or 0
+        finished_m = (await db.execute(
+            select(func.count(Match.id)).where(Match.status == "finished")
+        )).scalar() or 0
+        live_m = (await db.execute(
+            select(func.count(Match.id)).where(Match.status == "live")
+        )).scalar() or 0
+
+        teams_count = (await db.execute(select(func.count(Team.id)))).scalar() or 0
+        bets_total = (await db.execute(select(func.count(VirtualBet.id)))).scalar() or 0
+        bets_won = (await db.execute(
+            select(func.count(VirtualBet.id)).where(VirtualBet.status == "won")
+        )).scalar() or 0
+        bets_pending = (await db.execute(
+            select(func.count(VirtualBet.id)).where(VirtualBet.status == "pending")
+        )).scalar() or 0
+
+        return {
+            "matches": {
+                "total": total_m,
+                "upcoming": upcoming_m,
+                "finished": finished_m,
+                "live": live_m,
+            },
+            "teams": teams_count,
+            "bets": {
+                "total": bets_total,
+                "won": bets_won,
+                "pending": bets_pending,
+            },
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("web_app:app", host="0.0.0.0", port=8000, reload=True)
