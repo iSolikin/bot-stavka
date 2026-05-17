@@ -44,6 +44,18 @@ class Config:
     # FACEIT API (https://developers.faceit.com — бесплатно)
     FACEIT_API_KEY: str = os.getenv("FACEIT_API_KEY", "")
 
+    # Gemini Flash (оставляем для совместимости, не используется)
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+    # Groq — бесплатно 14400 req/day — https://console.groq.com
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+
+    @property
+    def ADMIN_ID(self) -> int | None:
+        return self.ADMIN_IDS[0] if self.ADMIN_IDS else None
+
     # Настройки
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

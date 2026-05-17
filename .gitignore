@@ -1,45 +1,47 @@
-# Секретные данные — никогда не в git
-.env
-*.env
-secrets.py
-
-# База данных
-*.db
-*.sqlite3
-
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
-*.pyd
-.Python
 *.egg-info/
-.eggs/
-build/
 dist/
-*.spec
+build/
+
+# Virtual environments
 venv/
-.venv/
 env/
-.env/
-pip-log.txt
+.venv/
 
-# Логи
+# Environment & secrets
+.env
+*.env
+
+# Database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Telegram session files
+*.session
+*.session-journal
+esports_bot_session*
+
+# Logs
 *.log
-logs/
-
-# Docker данные
-*.pid
+bot_out.txt
+bot_err.txt
+web_out.txt
+web_err.txt
 
 # IDE
-.vscode/settings.json
 .idea/
-*.swp
-*.swo
+.vscode/
+
+# OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Бэкапы
+# Temp
+*.tmp
 *.bak
-*_backup.*
-web/index_old.html

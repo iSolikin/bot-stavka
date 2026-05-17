@@ -122,10 +122,7 @@ async def settle_pending_bets(db: AsyncSession) -> int:
         if bet.scheduled_at and bet.scheduled_at > now:
             continue
 
-        # Слишком рано после начала (матч <2 ч назад) — пропускаем
         sched = bet.scheduled_at or bet.created_at
-        if (now - sched).total_seconds() < 7_200:
-            continue
 
         # Ищем finished-матчи между этими командами
         norm1 = bet.team1_name.lower()
@@ -157,8 +154,12 @@ async def settle_pending_bets(db: AsyncSession) -> int:
         maps = maps_result.scalars().all()
 
         if not maps:
-            # Нет результата ещё — ждём или ставим void если прошло >48 ч
-            if (now - sched).total_seconds() > 172_800:  # 48 часов
+            # Нет результата — ждём минимум 2 часа после начала,
+            # или ставим void если прошло >48 ч
+            elapsed = (now - sched).total_seconds()
+            if elapsed < 7_200:
+                continue
+            if elapsed > 172_800:  # 48 часов
                 bet.status = "void"
                 bet.settled_at = now
                 bet.profit = 0.0

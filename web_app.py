@@ -431,6 +431,109 @@ async def team_detail(team_name: str, game: str = "cs2"):
         }
 
 
+# -------- Новостные события --------
+
+@app.get("/api/news/events")
+async def news_events(
+    game: Optional[str] = None,
+    days: int = Query(7, ge=1, le=30),
+    limit: int = Query(50, ge=1, le=200),
+    team: Optional[str] = None,
+):
+    from db.models import NewsEvent
+    from sqlalchemy import or_
+    from datetime import timedelta
+    async with SessionLocal() as db:
+        now = datetime.utcnow()
+        since = now - timedelta(days=days)
+        q = select(NewsEvent).where(
+            NewsEvent.created_at >= since,
+            NewsEvent.valid_until >= now,
+        )
+        if game:
+            q = q.where(or_(NewsEvent.game == game, NewsEvent.game.is_(None)))
+        if team:
+            q = q.where(NewsEvent.team_name.ilike(f"%{team}%"))
+        q = q.order_by(desc(NewsEvent.created_at)).limit(limit)
+        result = await db.execute(q)
+        events = result.scalars().all()
+        return [{"id": e.id, "team": e.team_name, "player": e.player_name,
+                 "game": e.game, "event_type": e.event_type, "impact": e.impact,
+                 "summary": e.summary, "channel": e.channel_username,
+                 "processed_by": e.processed_by,
+                 "created_at": e.created_at.isoformat() if e.created_at else None,
+                 "valid_until": e.valid_until.isoformat() if e.valid_until else None}
+                for e in events]
+
+
+@app.get("/api/news/messages")
+async def news_messages(
+    game: Optional[str] = None,
+    hours: int = Query(24, ge=1, le=168),
+    limit: int = Query(60, ge=1, le=200),
+    team: Optional[str] = None,
+):
+    from db.models import TelegramMessage
+    from sqlalchemy import or_
+    from datetime import timedelta
+    async with SessionLocal() as db:
+        since = datetime.utcnow() - timedelta(hours=hours)
+        q = select(TelegramMessage).where(
+            TelegramMessage.posted_at >= since,
+            TelegramMessage.text.isnot(None),
+        )
+        if game:
+            q = q.where(or_(TelegramMessage.game == game, TelegramMessage.game == "both"))
+        if team:
+            q = q.where(or_(TelegramMessage.text.ilike(f"%{team}%"),
+                            TelegramMessage.mentioned_teams.ilike(f"%{team}%")))
+        q = q.order_by(desc(TelegramMessage.posted_at)).limit(limit)
+        result = await db.execute(q)
+        return [{"id": m.id, "channel": m.channel_username, "text": (m.text or "")[:500],
+                 "game": m.game, "teams": m.mentioned_teams,
+                 "posted_at": m.posted_at.isoformat() if m.posted_at else None}
+                for m in result.scalars().all()]
+
+
+@app.get("/api/news/team/{team_name}")
+async def team_news_endpoint(team_name: str, game: Optional[str] = None, days: int = 7):
+    from db.models import NewsEvent, TelegramMessage
+    from sqlalchemy import or_
+    from datetime import timedelta
+    async with SessionLocal() as db:
+        now = datetime.utcnow()
+        since = now - timedelta(days=days)
+        words = [w for w in team_name.lower().split()
+                 if len(w) > 2 and w not in ("team", "gaming", "esports", "club")]
+        search = words[0] if words else team_name.lower()
+
+        eq = select(NewsEvent).where(
+            NewsEvent.created_at >= since, NewsEvent.valid_until >= now,
+            NewsEvent.team_name.ilike(f"%{search}%"),
+        )
+        if game:
+            eq = eq.where(or_(NewsEvent.game == game, NewsEvent.game.is_(None)))
+        er = await db.execute(eq.order_by(desc(NewsEvent.created_at)).limit(10))
+
+        mq = select(TelegramMessage).where(
+            TelegramMessage.posted_at >= since,
+            or_(TelegramMessage.text.ilike(f"%{search}%"),
+                TelegramMessage.mentioned_teams.ilike(f"%{search}%")),
+        ).order_by(desc(TelegramMessage.posted_at)).limit(5)
+        mr = await db.execute(mq)
+
+        return {
+            "team": team_name,
+            "events": [{"event_type": e.event_type, "impact": e.impact,
+                        "summary": e.summary, "player": e.player_name,
+                        "created_at": e.created_at.isoformat() if e.created_at else None}
+                       for e in er.scalars().all()],
+            "messages": [{"channel": m.channel_username, "text": (m.text or "")[:300],
+                          "posted_at": m.posted_at.isoformat() if m.posted_at else None}
+                         for m in mr.scalars().all()],
+        }
+
+
 # -------- Патч --------
 
 @app.get("/api/patch/{game}")
@@ -491,6 +594,91 @@ async def system_summary():
             },
             "updated_at": datetime.utcnow().isoformat(),
         }
+
+
+# -------- Маркеты (аналитика ставок) --------
+
+@app.get("/api/markets/by_teams")
+async def predict_markets_by_teams(
+    team1: str,
+    team2: str,
+    game: str = "dota2",
+):
+    """Аналитика маркетов по именам команд (без match_id)."""
+    from analyzer.market_predictor import predict_markets
+    async with SessionLocal() as db:
+        win_prob = 0.5
+        try:
+            from analyzer.analyzer import MatchAnalyzer
+            analyzer = MatchAnalyzer(db)
+            pred = await analyzer.quick_predict(team1, team2, game)
+            win_prob = pred.get("team1_prob", 0.5)
+        except Exception:
+            pass
+        return await predict_markets(db, team1, team2, game, win_prob)
+
+
+@app.get("/api/markets/{match_id}")
+async def match_markets(match_id: int):
+    """Полная аналитика маркетов для матча — тоталы, форы, первая кровь и т.д."""
+    from db.models import Match
+    from analyzer.market_predictor import predict_markets
+    async with SessionLocal() as db:
+        m = await db.get(Match, match_id)
+        if not m:
+            raise HTTPException(404, "Match not found")
+
+        # Получаем предсказание вероятности победы
+        win_prob = 0.5
+        try:
+            from analyzer.analyzer import MatchAnalyzer
+            analyzer = MatchAnalyzer(db)
+            pred = await analyzer.quick_predict(m.team1_name, m.team2_name, m.game)
+            win_prob = pred.get("team1_prob", 0.5)
+        except Exception:
+            pass
+
+        result = await predict_markets(db, m.team1_name, m.team2_name, m.game, win_prob)
+        result["match_id"] = match_id
+        result["scheduled_at"] = m.scheduled_at.isoformat() if m.scheduled_at else None
+        result["tournament"] = m.tournament
+        return result
+
+
+
+@app.get("/api/stats/detail/{game}")
+async def detail_stats_summary(game: str, team: Optional[str] = None, limit: int = 20):
+    """Детальная статистика игр (kills, towers, roshans)."""
+    from db.models import MatchDetailStats
+    async with SessionLocal() as db:
+        q = select(MatchDetailStats).where(MatchDetailStats.game == game)
+        if team:
+            norm = team.lower()
+            words = [w for w in norm.split() if len(w) > 2]
+            search = words[0] if words else norm
+            q = q.where(or_(
+                MatchDetailStats.team1_name.ilike(f"%{search}%"),
+                MatchDetailStats.team2_name.ilike(f"%{search}%"),
+            ))
+        q = q.order_by(desc(MatchDetailStats.match_date)).limit(limit)
+        res = await db.execute(q)
+        rows = res.scalars().all()
+        return [{
+            "id": r.id,
+            "team1": r.team1_name,
+            "team2": r.team2_name,
+            "winner": r.winner,
+            "total_kills": r.total_kills,
+            "team1_kills": r.team1_kills,
+            "team2_kills": r.team2_kills,
+            "total_towers": r.total_towers,
+            "total_roshans": r.total_roshans,
+            "duration_min": round(r.duration_seconds / 60, 1) if r.duration_seconds else None,
+            "had_megacreeps": r.had_megacreeps,
+            "first_blood_team": r.first_blood_team,
+            "match_date": r.match_date.isoformat() if r.match_date else None,
+            "tournament": r.tournament,
+        } for r in rows]
 
 
 if __name__ == "__main__":

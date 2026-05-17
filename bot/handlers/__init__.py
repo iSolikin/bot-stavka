@@ -7,6 +7,7 @@ from bot.handlers.subscriptions import router as subscriptions_router
 from bot.handlers.admin import router as admin_router
 from bot.handlers.bets import router as bets_router
 from bot.handlers.today import router as today_router
+from bot.handlers.news import news_router
 
 # Главный роутер — включает все дочерние
 router = Router()
@@ -17,5 +18,6 @@ router.include_router(subscriptions_router)
 router.include_router(admin_router)
 router.include_router(bets_router)
 router.include_router(today_router)
+router.include_router(news_router)
 
 __all__ = ["router"]

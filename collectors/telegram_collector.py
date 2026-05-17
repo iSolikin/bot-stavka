@@ -1,199 +1,282 @@
 """
-Сборщик сообщений из Telegram-каналов через Telethon.
-Работает как обычный пользователь (не бот).
+Сборщик новостей из открытых источников (без Telegram API).
+Читает RSS и HTML-страницы новостных сайтов.
+Сохраняет в таблицу telegram_messages для совместимости с news_processor.
 """
 import logging
 import re
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
-from telethon import TelegramClient
-from telethon.tl.types import Message
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from config import config
-from db.models import TelegramChannel, TelegramMessage
+from db.models import TelegramMessage
 
 logger = logging.getLogger(__name__)
 
-# Словари для определения упомянутых команд/игроков
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+}
+
+# ──────────────────────── Определение команд/игроков ────────────────────────
+
 TEAM_ALIASES: dict[str, list[str]] = {
-    # CS2
-    "navi": ["natus vincere", "navi", "na`vi", "na'vi", "навигатор", "нави"],
-    "vitality": ["team vitality", "vitality", "виталити"],
-    "faze": ["faze clan", "faze", "фейз"],
-    "g2": ["g2 esports", "g2", "же два"],
-    "heroic": ["heroic", "хероик"],
-    "spirit": ["team spirit", "spirit", "спирит"],
-    "liquid": ["team liquid", "liquid", "ликвид"],
+    "navi": ["natus vincere", "navi", "na`vi", "na'vi", "нави"],
+    "vitality": ["team vitality", "vitality"],
+    "faze": ["faze clan", "faze"],
+    "g2": ["g2 esports", "g2 esports"],
+    "heroic": ["heroic"],
+    "spirit": ["team spirit", "spirit"],
+    "liquid": ["team liquid", "liquid"],
     "mouz": ["mousesports", "mouz", "mouse"],
-    "falcons": ["team falcons", "falcons", "фалконс"],
-    "mongol": ["the mongolz", "mongolz", "монголз"],
-    "astralis": ["astralis", "астралис"],
-    "ence": ["ence"],
-    "apeks": ["apeks"],
-    "cloud9": ["cloud9", "c9", "клауд9"],
-    "vp": ["virtus.pro", "virtuspro", "vp", "вп", "виртус"],
-    # Dota2
-    "og": ["og", "оджи"],
-    "tundra": ["tundra esports", "tundra", "тундра"],
-    "gaimin": ["gaimin gladiators", "gaimin", "гаймин"],
-    "secret": ["team secret", "secret", "сикрет"],
-    "xtreme": ["xtreme gaming", "xtreme"],
-    "bb": ["betboom team", "betboom", "bb team", "бетбум"],
-    "aurora": ["aurora gaming", "aurora", "аурора"],
-    "gl": ["gamelegion", "game legion", "gl"],
-    "nouns": ["nouns esports", "nouns"],
-    "beastcoast": ["beastcoast"],
-    "talon": ["talon esports", "talon"],
+    "falcons": ["team falcons", "falcons"],
+    "mongol": ["the mongolz", "mongolz"],
+    "astralis": ["astralis"],
+    "cloud9": ["cloud9", "c9"],
+    "vp": ["virtus.pro", "virtuspro"],
+    "og": ["og esports"],
+    "tundra": ["tundra esports", "tundra"],
+    "gaimin": ["gaimin gladiators", "gaimin"],
+    "secret": ["team secret"],
+    "bb": ["betboom team", "betboom"],
+    "aurora": ["aurora gaming", "aurora"],
 }
 
 PLAYER_ALIASES: dict[str, list[str]] = {
-    "s1mple": ["s1mple", "александр костылев"],
-    "zywoo": ["zywoo", "mathieu herbaut"],
-    "niko": ["niko", "nikola kovač"],
-    "device": ["device", "nicolai reedtz"],
-    "puppey": ["puppey", "clement ivanov"],
-    "miracle": ["miracle-", "miracle"],
-    "topson": ["topson", "topias taavitsainen"],
+    "s1mple": ["s1mple"],
+    "zywoo": ["zywoo"],
+    "niko": ["niko"],
+    "device": ["device"],
+    "puppey": ["puppey"],
+    "miracle": ["miracle"],
+    "topson": ["topson"],
 }
 
 
 def _find_mentions(text: str, aliases: dict[str, list[str]]) -> list[str]:
-    """Найти упоминания в тексте по словарю алиасов."""
     text_lower = text.lower()
-    found = []
-    for key, variants in aliases.items():
-        if any(v in text_lower for v in variants):
-            found.append(key)
-    return found
+    return [k for k, vs in aliases.items() if any(v in text_lower for v in vs)]
 
 
 def _detect_game(text: str) -> str | None:
-    text_lower = text.lower()
-    cs2_keywords = ["cs2", "cs:go", "counter-strike", "csgo", "hltv"]
-    dota_keywords = ["dota", "dota2", "dota 2", "ti", "the international"]
-
-    has_cs2 = any(kw in text_lower for kw in cs2_keywords)
-    has_dota = any(kw in text_lower for kw in dota_keywords)
-
-    if has_cs2 and not has_dota:
+    t = text.lower()
+    has_cs = any(kw in t for kw in ["cs2", "cs:go", "counter-strike", "csgo", "hltv"])
+    has_d2 = any(kw in t for kw in ["dota", "dota2", "dota 2", "the international"])
+    if has_cs and not has_d2:
         return "cs2"
-    if has_dota and not has_cs2:
+    if has_d2 and not has_cs:
         return "dota2"
-    if has_cs2 and has_dota:
+    if has_cs and has_d2:
         return "both"
     return None
 
 
-class TelegramCollector:
-    def __init__(self, client: TelegramClient):
-        self.client = client
+def _html_to_text(html: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"&amp;", "&", text)
+    text = re.sub(r"&lt;", "<", text)
+    text = re.sub(r"&gt;", ">", text)
+    text = re.sub(r"&quot;", '"', text)
+    text = re.sub(r"&#8217;", "'", text)
+    text = re.sub(r"&#[0-9]+;", "", text)
+    return re.sub(r"\s+", " ", text).strip()
 
-    async def get_active_channels(self, db: AsyncSession) -> list[str]:
-        """Получить список активных каналов из БД."""
-        result = await db.execute(
-            select(TelegramChannel.username).where(TelegramChannel.is_active == True)
+
+# ──────────────────────── RSS парсер ────────────────────────
+
+RSS_SOURCES = [
+    # (channel_username, url, game_hint)
+    ("vpesports_cs2",   "https://vpesports.com/feed",        "cs2"),
+    ("dotabuff_blog",   "https://www.dotabuff.com/blog.rss", "dota2"),
+    ("cybersport_scrape", None, None),   # HTML scraper, не RSS
+]
+
+
+def _parse_rss(xml_text: str, channel: str, game_hint: str | None) -> list[dict]:
+    """Парсим RSS/Atom XML и возвращаем список сообщений."""
+    messages = []
+    try:
+        # Убираем BOM и ведущие пробелы/переносы до <?xml
+        xml_text = xml_text.lstrip("﻿ \t\r\n")
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        logger.warning("RSS parse error for %s: %s", channel, e)
+        return []
+
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+
+    # RSS 2.0
+    items = root.findall(".//item")
+    # Atom
+    if not items:
+        items = root.findall(".//atom:entry", ns) or root.findall(".//entry")
+
+    for i, item in enumerate(items[:30]):
+        # Заголовок
+        title_el = item.find("title")
+        title = _html_to_text(title_el.text or "") if title_el is not None else ""
+
+        # Описание / summary
+        for tag in ("description", "summary", "content", "{http://purl.org/rss/1.0/modules/content/}encoded"):
+            desc_el = item.find(tag)
+            if desc_el is not None and desc_el.text:
+                desc = _html_to_text(desc_el.text)[:500]
+                break
+        else:
+            desc = ""
+
+        text = f"{title}. {desc}".strip(". ") if desc else title
+        if len(text) < 10:
+            continue
+
+        # Дата
+        pub_el = item.find("pubDate") or item.find("published") or item.find("updated")
+        posted_at = datetime.utcnow()
+        if pub_el is not None and pub_el.text:
+            try:
+                dt = parsedate_to_datetime(pub_el.text)
+                posted_at = dt.replace(tzinfo=None)
+            except Exception:
+                try:
+                    posted_at = datetime.fromisoformat(
+                        pub_el.text.replace("Z", "+00:00")
+                    ).replace(tzinfo=None)
+                except Exception:
+                    pass
+
+        # Уникальный ID (используем порядковый номер + хэш)
+        link_el = item.find("link") or item.find("{http://www.w3.org/2005/Atom}link")
+        link = ""
+        if link_el is not None:
+            link = link_el.text or link_el.get("href", "")
+        msg_id = abs(hash(link or text[:50])) % (10**9)
+
+        game = _detect_game(text) or game_hint
+
+        messages.append({
+            "channel": channel,
+            "message_id": msg_id,
+            "text": text[:4096],
+            "posted_at": posted_at,
+            "game": game,
+        })
+
+    return messages
+
+
+# ──────────────────────── cybersport.ru HTML scraper ────────────────────────
+
+async def _scrape_cybersport(client: httpx.AsyncClient) -> list[dict]:
+    """Скрапим заголовки новостей с cybersport.ru."""
+    messages = []
+    try:
+        resp = await client.get("https://cybersport.ru/", timeout=15)
+        if resp.status_code != 200:
+            return []
+        html = resp.text
+        # Ищем заголовки новостей
+        titles = re.findall(
+            r'<(?:h[123]|a)[^>]+class="[^"]*(?:title|heading|news)[^"]*"[^>]*>\s*([^<]{15,200})\s*<',
+            html, re.IGNORECASE
         )
-        return [row[0] for row in result.fetchall()]
+        # Fallback — просто все h2/h3 теги
+        if not titles:
+            titles = re.findall(r'<h[23][^>]*>\s*<a[^>]*>([^<]{15,150})</a>', html)
 
-    async def fetch_new_messages(
-        self, channel: str, db: AsyncSession, limit: int = 20
-    ) -> list[dict]:
-        """Получить новые сообщения из канала."""
-        # Находим ID последнего сохранённого сообщения
-        result = await db.execute(
-            select(TelegramMessage.message_id)
-            .where(TelegramMessage.channel_username == channel)
-            .order_by(TelegramMessage.message_id.desc())
-            .limit(1)
-        )
-        row = result.fetchone()
-        min_id = row[0] if row else 0
-
-        messages = []
-        try:
-            async for msg in self.client.iter_messages(channel, limit=limit, min_id=min_id):
-                if not isinstance(msg, Message) or not msg.text:
-                    continue
-                messages.append({
-                    "channel": channel,
-                    "message_id": msg.id,
-                    "text": msg.text,
-                    "posted_at": msg.date.replace(tzinfo=None) if msg.date else None,
-                })
-        except Exception as e:
-            logger.error("Telegram fetch error for %s: %s", channel, e)
-
-        return messages
-
-    async def save_messages(self, db: AsyncSession, messages: list[dict]) -> int:
-        count = 0
-        for m in messages:
-            # Проверяем что такого сообщения ещё нет в БД
-            existing = await db.execute(
-                select(TelegramMessage).where(
-                    TelegramMessage.channel_username == m["channel"],
-                    TelegramMessage.message_id == m["message_id"],
-                )
-            )
-            if existing.scalar_one_or_none():
+        seen = set()
+        for i, title in enumerate(titles[:20]):
+            title = _html_to_text(title).strip()
+            if len(title) < 15 or title in seen:
                 continue
+            seen.add(title)
+            game = _detect_game(title)
+            msg_id = abs(hash(title)) % (10**9)
+            messages.append({
+                "channel": "cybersport_scrape",
+                "message_id": msg_id,
+                "text": title,
+                "posted_at": datetime.utcnow(),
+                "game": game,
+            })
+    except Exception as e:
+        logger.warning("cybersport.ru scrape failed: %s", e)
+    return messages
 
-            text = m["text"] or ""
-            mentioned_teams = _find_mentions(text, TEAM_ALIASES)
-            mentioned_players = _find_mentions(text, PLAYER_ALIASES)
-            game = _detect_game(text)
 
-            msg = TelegramMessage(
-                channel_username=m["channel"],
-                message_id=m["message_id"],
-                text=text[:4096],
-                mentioned_teams=",".join(mentioned_teams) if mentioned_teams else None,
-                mentioned_players=",".join(mentioned_players) if mentioned_players else None,
-                game=game,
-                posted_at=m["posted_at"],
+# ──────────────────────── Сохранение в БД ────────────────────────
+
+async def _save_messages(db: AsyncSession, messages: list[dict]) -> int:
+    count = 0
+    for m in messages:
+        existing = await db.execute(
+            select(TelegramMessage).where(
+                TelegramMessage.channel_username == m["channel"],
+                TelegramMessage.message_id == m["message_id"],
             )
-            db.add(msg)
-            count += 1
+        )
+        if existing.scalar_one_or_none():
+            continue
 
-        if count:
-            await db.commit()
-        return count
+        text = m.get("text") or ""
+        game = m.get("game") or _detect_game(text)
+        mentioned_teams = _find_mentions(text, TEAM_ALIASES)
+        mentioned_players = _find_mentions(text, PLAYER_ALIASES)
 
-    async def sync_all_channels(self, db: AsyncSession) -> int:
-        """Синхронизировать все активные каналы."""
-        channels = await self.get_active_channels(db)
-        if not channels:
-            logger.info("Telegram: no active channels configured")
-            return 0
+        msg = TelegramMessage(
+            channel_username=m["channel"],
+            message_id=m["message_id"],
+            text=text,
+            mentioned_teams=",".join(mentioned_teams) if mentioned_teams else None,
+            mentioned_players=",".join(mentioned_players) if mentioned_players else None,
+            game=game,
+            posted_at=m.get("posted_at") or datetime.utcnow(),
+        )
+        db.add(msg)
+        count += 1
 
-        total = 0
-        for channel in channels:
-            messages = await self.fetch_new_messages(channel, db)
-            saved = await self.save_messages(db, messages)
-            total += saved
-            logger.info("Telegram: %s -> %d new messages", channel, saved)
+    if count:
+        await db.commit()
+    return count
 
-        return total
 
+# ──────────────────────── Точка входа ────────────────────────
 
 async def run_telegram_sync(db: AsyncSession) -> None:
-    """Точка входа для планировщика."""
-    if not config.TG_API_ID or not config.TG_API_HASH:
-        logger.debug("Telegram sync skipped: TG_API_ID/TG_API_HASH not configured")
-        return
+    """Собираем новости из RSS и HTML-скраперов."""
+    total = 0
+    async with httpx.AsyncClient(timeout=15, headers=_HEADERS, follow_redirects=True) as client:
 
-    client = TelegramClient(
-        "esports_bot_session",
-        config.TG_API_ID,
-        config.TG_API_HASH,
-    )
-    try:
-        async with client:
-            await client.start(phone=config.TG_PHONE)
-            collector = TelegramCollector(client)
-            total = await collector.sync_all_channels(db)
-            logger.info("Telegram sync complete: %d new messages", total)
-    except Exception as e:
-        logger.warning("Telegram sync failed: %s", e)
+        # RSS источники
+        for channel, url, game_hint in RSS_SOURCES:
+            if url is None:
+                continue
+            try:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    msgs = _parse_rss(resp.text, channel, game_hint)
+                    saved = await _save_messages(db, msgs)
+                    if saved:
+                        logger.info("News [%s]: %d new items", channel, saved)
+                    total += saved
+                else:
+                    logger.warning("RSS %s: HTTP %s", channel, resp.status_code)
+            except Exception as e:
+                logger.warning("RSS fetch failed [%s]: %s", channel, e)
+
+        # HTML скрапер cybersport.ru
+        msgs = await _scrape_cybersport(client)
+        saved = await _save_messages(db, msgs)
+        if saved:
+            logger.info("News [cybersport.ru]: %d new items", saved)
+        total += saved
+
+    if total:
+        logger.info("News sync complete: %d new items total", total)

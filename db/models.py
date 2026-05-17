@@ -184,6 +184,93 @@ class MatchNotification(Base):
     )
 
 
+class NewsEvent(Base):
+    """Структурированное событие, извлечённое из новости (Gemini Flash или keywords)."""
+    __tablename__ = "news_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # Источник
+    source_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("telegram_messages.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    channel_username: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    # Кого касается
+    team_name: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    player_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    game: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+
+    # Тип события
+    # injury / absence / roster_add / roster_remove / bootcamp /
+    # form_peak / form_poor / win_streak / loss_streak / disqualified / other
+    event_type: Mapped[str] = mapped_column(String(32), default="other")
+
+    # Влияние на вероятность победы команды: -1.0 (очень плохо) … +1.0 (очень хорошо)
+    impact: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Краткое описание
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Кто обработал: "gemini" / "keywords"
+    processed_by: Mapped[str] = mapped_column(String(32), default="keywords")
+
+    # Срок действия (через 7 дней событие устаревает)
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class MatchDetailStats(Base):
+    """
+    Детальная статистика одной игры (карты).
+    Собирается из OpenDota (Dota2) и HLTV (CS2).
+    Используется для предсказания маркетов (тоталы, форы, и т.д.)
+    """
+    __tablename__ = "match_detail_stats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # Привязка
+    match_id: Mapped[int | None] = mapped_column(ForeignKey("matches.id", ondelete="SET NULL"), nullable=True, index=True)
+    external_match_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    source: Mapped[str] = mapped_column(String(32))  # opendota / hltv
+    game: Mapped[str] = mapped_column(String(16), index=True)
+
+    # Команды
+    team1_name: Mapped[str] = mapped_column(String(128), index=True)
+    team2_name: Mapped[str] = mapped_column(String(128), index=True)
+    winner: Mapped[str | None] = mapped_column(String(8), nullable=True)  # team1 / team2
+
+    # === Dota 2 ===
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_kills: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    team1_kills: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    team2_kills: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    team1_towers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    team2_towers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_towers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_roshans: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    first_blood_team: Mapped[str | None] = mapped_column(String(8), nullable=True)   # team1/team2
+    first_tower_team: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    had_megacreeps: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    # === CS2 ===
+    total_rounds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    team1_rounds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    team2_rounds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    map_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Мета
+    match_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    tournament: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("external_match_id", "source", name="uq_detail_stats_ext"),
+    )
+
+
 class VirtualBet(Base):
     """Виртуальная ставка, сделанная ботом автоматически на основе предикта."""
     __tablename__ = "virtual_bets"

@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Esports Analytics</title>
+<style>
+:root {
+  --bg: #080b14;
+  --bg2: #0d1120;
+  --bg3: #131829;
+  --card: #111827;
+  --card2: #1a2236;
+  --border: #1e2d45;
+  --border2: #253449;
+  --accent: #3b82f6;
+  --accent2: #60a5fa;
+  --accent-glow: rgba(59,130,246,0.15);
+  --green: #10b981;
+  --green-dim: rgba(16,185,129,0.12);
+  --red: #ef4444;
+  --red-dim: rgba(239,68,68,0.12);
+  --yellow: #f59e0b;
+  --yellow-dim: rgba(245,158,11,0.12);
+  --purple: #8b5cf6;
+  --text: #e2e8f0;
+  --text2: #94a3b8;
+  --text3: #64748b;
+  --cs2: #f97316;
+  --dota: #8b5cf6;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --transition: 0.18s ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ====== LAYOUT ====== */
+.layout { display: flex; min-height: 100vh; }
+
+/* ====== SIDEBAR ====== */
+.sidebar {
+  width: 240px;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 100;
+  transition: transform var(--transition);
+}
+
+.sidebar-logo {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px;
+}
+.sidebar-logo .logo-icon {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.sidebar-logo .logo-text { font-size: 15px; font-weight: 700; color: var(--text); }
+.sidebar-logo .logo-sub { font-size: 11px; color: var(--text3); margin-top: 1px; }
+
+.sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+
+.nav-section-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text3); padding: 12px 20px 6px;
+}
+
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px; cursor: pointer;
+  color: var(--text2); font-size: 14px; font-weight: 500;
+  border-radius: 0; transition: all var(--transition);
+  border-left: 2px solid transparent;
+  user-select: none;
+}
+.nav-item:hover { background: var(--bg3); color: var(--text); }
+.nav-item.active {
+  background: var(--accent-glow);
+  color: var(--accent2);
+  border-left-color: var(--accent);
+}
+.nav-item .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+.nav-item .nav-badge {
+  margin-left: auto;
+  background: var(--accent);
+  color: white; font-size: 10px; font-weight: 700;
+  padding: 2px 6px; border-radius: 10px; min-width: 18px; text-align: center;
+}
+.nav-item .nav-badge.live { background: var(--red); animation: pulse 1.5s infinite; }
+
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--text3);
+}
+.sidebar-footer .upd { display: flex; align-items: center; gap: 6px; }
+.sidebar-footer .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+/* ====== MAIN ====== */
+.main { margin-left: 240px; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+.topbar {
+  height: 60px; padding: 0 28px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 16px;
+  position: sticky; top: 0; z-index: 50;
+}
+.topbar-title { font-size: 18px; font-weight: 700; color: var(--text); flex: 1; }
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  border: none; transition: all var(--transition);
+}
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: #2563eb; }
+.btn-ghost { background: var(--bg3); color: var(--text2); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--card2); color: var(--text); }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+
+.page-content { padding: 28px; flex: 1; }
+
+/* ====== TABS ====== */
+.tabs { display: flex; gap: 4px; margin-bottom: 24px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; width: fit-content; }
+.tab { padding: 7px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text2); transition: all var(--transition); }
+.tab:hover { color: var(--text); }
+.tab.active { background: var(--card2); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+
+/* ====== CARDS ====== */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.card-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.card-sub { font-size: 12px; color: var(--text3); margin-top: 2px; }
+
+/* ====== GRID ====== */
+.grid { display: grid; gap: 16px; }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+
+/* ====== STAT CARDS ====== */
+.stat-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 20px;
+}
+.stat-card .stat-label { font-size: 12px; color: var(--text3); font-weight: 500; margin-bottom: 8px; }
+.stat-card .stat-value { font-size: 28px; font-weight: 800; color: var(--text); line-height: 1; }
+.stat-card .stat-sub { font-size: 12px; color: var(--text2); margin-top: 6px; }
+.stat-card .stat-icon { font-size: 24px; margin-bottom: 10px; }
+
+/* ====== MATCH CARD ====== */
+.match-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 20px; cursor: pointer;
+  transition: all var(--transition);
+  position: relative; overflow: hidden;
+}
+.match-card:hover { border-color: var(--border2); background: var(--card2); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+.match-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+}
+.match-card.cs2::before { background: var(--cs2); }
+.match-card.dota2::before { background: var(--dota); }
+.match-card.live::before { background: var(--red); animation: pulse-bar 1.5s infinite; }
+
+.match-meta {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 12px;
+}
+.game-badge {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 8px; border-radius: 4px;
+}
+.game-badge.cs2 { background: rgba(249,115,22,0.15); color: var(--cs2); }
+.game-badge.dota2 { background: rgba(139,92,246,0.15); color: var(--dota); }
+.live-badge { font-size: 10px; font-weight: 700; color: var(--red); background: rgba(239,68,68,0.12); padding: 2px 8px; border-radius: 4px; }
+.match-time { font-size: 12px; color: var(--text3); margin-left: auto; }
+
+.match-teams {
+  display: flex; align-items: center; gap: 12px;
+}
+.team-name { font-size: 16px; font-weight: 700; color: var(--text); flex: 1; }
+.team-name.right { text-align: right; }
+.vs { font-size: 12px; color: var(--text3); font-weight: 600; flex-shrink: 0; }
+
+.match-footer {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.tournament-name { font-size: 12px; color: var(--text3); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.format-badge { font-size: 11px; color: var(--text3); background: var(--bg3); padding: 2px 8px; border-radius: 4px; }
+
+/* ====== PREDICTION BAR ====== */
+.pred-bar { margin-top: 12px; }
+.pred-teams { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+.pred-pct { font-weight: 700; }
+.pred-track { height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+.pred-fill {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--purple));
+  transition: width 0.5s ease;
+}
+.conf-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; margin-top: 6px;
+}
+.conf-badge.низкая { background: var(--yellow-dim); color: var(--yellow); }
+.conf-badge.средняя { background: rgba(249,115,22,0.12); color: #f97316; }
+.conf-badge.высокая { background: var(--green-dim); color: var(--green); }
+
+/* ====== BET STATUS ====== */
+.bet-status {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 6px;
+}
+.bet-status.won { background: var(--green-dim); color: var(--green); }
+.bet-status.lost { background: var(--red-dim); color: var(--red); }
+.bet-status.pending { background: var(--yellow-dim); color: var(--yellow); }
+.bet-status.void { background: var(--bg3); color: var(--text3); }
+
+/* ====== TABLE ====== */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; padding: 10px 14px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text3); border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg3); }
+td .team-link { color: var(--text); font-weight: 600; cursor: pointer; }
+td .team-link:hover { color: var(--accent2); }
+
+/* ====== FORM STRING ====== */
+.form-str { display: flex; gap: 3px; }
+.form-char {
+  width: 18px; height: 18px; border-radius: 4px;
+  font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+}
+.form-char.W { background: var(--green-dim); color: var(--green); }
+.form-char.L { background: var(--red-dim); color: var(--red); }
+
+/* ====== MODAL ====== */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+  z-index: 200; display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity var(--transition);
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal {
+  background: var(--card); border: 1px solid var(--border2); border-radius: 16px;
+  width: 100%; max-width: 640px; max-height: 88vh; overflow-y: auto;
+  padding: 28px;
+  transform: translateY(16px); transition: transform var(--transition);
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+.modal-close {
+  position: absolute; top: 20px; right: 20px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  width: 32px; height: 32px; cursor: pointer; color: var(--text2);
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
+}
+.modal-close:hover { color: var(--text); }
+
+/* ====== SEARCH ====== */
+.search-wrap { position: relative; }
+.search-wrap input {
+  width: 100%; padding: 10px 16px 10px 40px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text); font-size: 14px; outline: none;
+  transition: border-color var(--transition);
+}
+.search-wrap input::placeholder { color: var(--text3); }
+.search-wrap input:focus { border-color: var(--accent); }
+.search-wrap .search-icon {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: var(--text3); font-size: 16px;
+}
+
+/* ====== PROGRESS RING ====== */
+.roi-display { text-align: center; }
+.roi-value { font-size: 36px; font-weight: 800; }
+.roi-value.pos { color: var(--green); }
+.roi-value.neg { color: var(--red); }
+.roi-label { font-size: 12px; color: var(--text3); margin-top: 4px; }
+
+/* ====== LOADING ====== */
+.loader {
+  display: flex; align-items: center; justify-content: center;
+  padding: 60px; color: var(--text3); font-size: 14px; gap: 10px;
+}
+.spin {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--border2); border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+/* ====== EMPTY ====== */
+.empty { text-align: center; padding: 60px 20px; color: var(--text3); }
+.empty .empty-icon { font-size: 48px; margin-bottom: 12px; }
+.empty .empty-text { font-size: 15px; font-weight: 600; color: var(--text2); }
+.empty .empty-sub { font-size: 13px; margin-top: 4px; }
+
+/* ====== SCROLLBAR ====== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+/* ====== ANIMATIONS ====== */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes pulse-bar { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+@keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.fade-in { animation: fade-in 0.25s ease forwards; }
+
+/* ====== DIVIDER ====== */
+.divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+/* ====== INLINE ITEMS ====== */
+.info-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.info-row:last-child { border-bottom: none; }
+.info-row .label { color: var(--text3); }
+.info-row .val { color: var(--text); font-weight: 600; }
+
+/* ====== PLAYER CHIP ====== */
+.player-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; color: var(--text2); }
+.player-chip .pname { color: var(--text); font-weight: 600; }
+
+/* ====== RESPONSIVE ====== */
+@media (max-width: 1024px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; }
+  .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  .page-content { padding: 16px; }
+}
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">⚡</div>
+      <div>
+        <div class="logo-text">Esports Analytics</div>
+        <div class="logo-sub">CS2 · Dota2</div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Обзор</div>
+      <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
+        <span class="nav-icon">🏠</span> Дашборд
+      </div>
+      <div class="nav-item" data-page="today" onclick="navigate('today')">
+        <span class="nav-icon">🎯</span> Предикты сегодня
+        <span class="nav-badge" id="badge-today">—</span>
+      </div>
+
+      <div class="nav-section-label">Матчи</div>
+      <div class="nav-item" data-page="cs2" onclick="navigate('cs2')">
+        <span class="nav-icon">🔫</span> CS2
+        <span class="nav-badge live" id="badge-live-cs2" style="display:none">LIVE</span>
+      </div>
+      <div class="nav-item" data-page="dota2" onclick="navigate('dota2')">
+        <span class="nav-icon">🗡️</span> Dota 2
+        <span class="nav-badge live" id="badge-live-dota2" style="display:none">LIVE</span>
+      </div>
+      <div class="nav-item" data-page="results" onclick="navigate('results')">
+        <span class="nav-icon">📋</span> Результаты
+      </div>
+
+      <div class="nav-section-label">Аналитика</div>
+      <div class="nav-item" data-page="bets" onclick="navigate('bets')">
+        <span class="nav-icon">💰</span> Виртуальные ставки
+      </div>
+      <div class="nav-item" data-page="teams" onclick="navigate('teams')">
+        <span class="nav-icon">🏆</span> Команды
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="upd">
+        <div class="dot"></div>
+        <span id="last-update">Обновление...</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="page-title">Дашборд</div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm" onclick="refreshCurrent()">🔄 Обновить</button>
+      </div>
+    </div>
+
+    <div class="page-content" id="page-content">
+      <div class="loader"><div class="spin"></div> Загрузка...</div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal-body" style="position:relative;">
+    <div class="modal-close" onclick="closeModal()">✕</div>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script>
+const API = '';  // relative — same origin
+let currentPage = 'dashboard';
+let todayCount = 0;
+
+// ====== NAV ======
+function navigate(page) {
+  currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const item = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if (item) item.classList.add('active');
+
+  const titles = {
+    dashboard: 'Дашборд', today: 'Предикты на сегодня',
+    cs2: 'CS2 — Матчи', dota2: 'Dota 2 — Матчи',
+    results: 'Результаты', bets: 'Виртуальные ставки',
+    teams: 'Команды'
+  };
+  document.getElementById('page-title').textContent = titles[page] || page;
+  loadPage(page);
+}
+
+function refreshCurrent() { loadPage(currentPage); }
+
+// ====== PAGES ======
+async function loadPage(page) {
+  const content = document.getElementById('page-content');
+  content.innerHTML = '<div class="loader"><div class="spin"></div> Загрузка...</div>';
+
+  try {
+    if (page === 'dashboard') await renderDashboard(content);
+    else if (page === 'today') await renderToday(content);
+    else if (page === 'cs2') await renderMatches(content, 'cs2');
+    else if (page === 'dota2') await renderMatches(content, 'dota2');
+    else if (page === 'results') await renderResults(content);
+    else if (page === 'bets') await renderBets(content);
+    else if (page === 'teams') await renderTeams(content);
+  } catch(e) {
+    content.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Ошибка загрузки</div><div class="empty-sub">${e.message}</div></div>`;
+  }
+  updateTimestamp();
+}
+
+// ====== API ======
+async function api(path) {
+  const res = await fetch(API + path);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ====== HELPERS ======
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  // Convert UTC to Yekaterinburg (+5)
+  const ekb = new Date(d.getTime() + 5*3600*1000);
+  const now = new Date();
+  const today = new Date(now.getTime() + 5*3600*1000);
+  const dd = ekb.getUTCDate(), mm = ekb.getUTCMonth()+1;
+  const td = today.getUTCDate(), tm = today.getUTCMonth()+1;
+  const hh = String(ekb.getUTCHours()).padStart(2,'0');
+  const min = String(ekb.getUTCMinutes()).padStart(2,'0');
+  if (dd===td && mm===tm) return `${hh}:${min}`;
+  return `${String(dd).padStart(2,'0')}.${String(mm).padStart(2,'0')} ${hh}:${min}`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+}
+
+function gameColor(g) { return g==='cs2' ? 'var(--cs2)' : 'var(--dota)'; }
+
+function formHtml(form) {
+  if (!form || form==='—') return '<span style="color:var(--text3)">—</span>';
+  return '<div class="form-str">' + form.slice(0,5).split('').map(c =>
+    `<div class="form-char ${c}">${c}</div>`
+  ).join('') + '</div>';
+}
+
+function confDot(c) {
+  const map = {низкая:'🟡', средняя:'🟠', высокая:'🟢'};
+  return map[c] || '⚪';
+}
+
+function betStatusHtml(status) {
+  const labels = {won:'✅ Выиграно', lost:'❌ Проиграно', pending:'⏳ Ожидает', void:'⚪ Void'};
+  return `<span class="bet-status ${status}">${labels[status]||status}</span>`;
+}
+
+function updateTimestamp() {
+  const now = new Date();
+  document.getElementById('last-update').textContent = `Обновлено ${now.toLocaleTimeString('ru')}`;
+}
+
+function matchCardHtml(m, pred) {
+  const isLive = m.status === 'live';
+  const extra = isLive ? ' live' : '';
+  const timeStr = isLive ? '<span class="live-badge">🔴 LIVE</span>' : `<span class="match-time">${fmtTime(m.scheduled_at)} ЕКБ</span>`;
+
+  let predHtml = '';
+  if (pred) {
+    const p1 = Math.round(pred.team1_prob * 100);
+    const p2 = Math.round(pred.team2_prob * 100);
+    const winner = pred.winner === m.team1 ? 'team1' : 'team2';
+    predHtml = `
+      <div class="pred-bar">
+        <div class="pred-teams">
+          <span>${escHtml(m.team1)} <b class="pred-pct" style="color:${winner==='team1'?'var(--green)':'var(--text2)'}">${p1}%</b></span>
+          <span><b class="pred-pct" style="color:${winner==='team2'?'var(--green)':'var(--text2)'}">${p2}%</b> ${escHtml(m.team2)}</span>
+        </div>
+        <div class="pred-track"><div class="pred-fill" style="width:${p1}%"></div></div>
+        <span class="conf-badge ${pred.confidence}">${confDot(pred.confidence)} ${pred.confidence}</span>
+      </div>`;
+  }
+
+  return `
+    <div class="match-card ${m.game}${extra}" onclick="openMatch(${m.id}, '${escHtml(m.team1)}', '${escHtml(m.team2)}', '${m.game}')">
+      <div class="match-meta">
+        <span class="game-badge ${m.game}">${m.game.toUpperCase()}</span>
+        ${isLive ? '<span class="live-badge">🔴 LIVE</span>' : ''}
+        ${timeStr}
+      </div>
+      <div class="match-teams">
+        <span class="team-name">${escHtml(m.team1)}</span>
+        <span class="vs">VS</span>
+        <span class="team-name right">${escHtml(m.team2)}</span>
+      </div>
+      ${predHtml}
+      <div class="match-footer">
+        <span class="tournament-name">🏆 ${escHtml(m.tournament||'Без турнира')}</span>
+        ${m.match_format ? `<span class="format-badge">${escHtml(m.match_format)}</span>` : ''}
+      </div>
+    </div>`;
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ====== DASHBOARD ======
+async function renderDashboard(content) {
+  const [summary, upcoming, stats] = await Promise.all([
+    api('/api/stats/summary'),
+    api('/api/matches/upcoming?hours=48'),
+    api('/api/bets/stats').catch(() => null),
+  ]);
+
+  const liveMatches = upcoming.filter(m => m.status === 'live');
+  const upcomingCount = upcoming.filter(m => m.status === 'upcoming').length;
+
+  // Update badges
+  document.getElementById('badge-today').textContent = upcoming.length;
+  const liveCsEl = document.getElementById('badge-live-cs2');
+  const liveDotaEl = document.getElementById('badge-live-dota2');
+  const liveCs = liveMatches.filter(m=>m.game==='cs2').length;
+  const liveDota = liveMatches.filter(m=>m.game==='dota2').length;
+  liveCsEl.style.display = liveCs ? '' : 'none';
+  liveDotaEl.style.display = liveDota ? '' : 'none';
+
+  const roi = stats ? stats.roi : 0;
+  const wr = stats ? stats.winrate : 0;
+  const roiSign = roi >= 0 ? '+' : '';
+
+  content.innerHTML = `
+    <div class="grid grid-4" style="margin-bottom:24px">
+      <div class="stat-card">
+        <div class="stat-icon">⚔️</div>
+        <div class="stat-label">Матчей сегодня</div>
+        <div class="stat-value">${upcoming.length}</div>
+        <div class="stat-sub">${liveMatches.length > 0 ? `🔴 ${liveMatches.length} в прямом эфире` : `${upcomingCount} предстоит`}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🏆</div>
+        <div class="stat-label">Команд в базе</div>
+        <div class="stat-value">${summary.teams}</div>
+        <div class="stat-sub">CS2 + Dota2</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">💰</div>
+        <div class="stat-label">Винрейт ставок</div>
+        <div class="stat-value" style="color:${wr>=55?'var(--green)':wr>=45?'var(--yellow)':'var(--red)'}">${wr.toFixed(1)}%</div>
+        <div class="stat-sub">${stats ? stats.won + ' из ' + (stats.won+stats.lost) : '—'} сведено</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">📈</div>
+        <div class="stat-label">ROI</div>
+        <div class="stat-value ${roi>=0?'pos':'neg'}" style="color:${roi>=0?'var(--green)':'var(--red)'}">${roiSign}${roi.toFixed(1)}%</div>
+        <div class="stat-sub">Доходность ставок</div>
+      </div>
+    </div>
+
+    <div class="grid grid-2">
+      <div>
+        <div class="card-header" style="margin-bottom:16px">
+          <div>
+            <div class="card-title">⚔️ Ближайшие матчи</div>
+            <div class="card-sub">Следующие 48 часов</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="navigate('today')">Все →</button>
+        </div>
+        <div class="grid" style="gap:10px">
+          ${upcoming.slice(0,6).map(m => matchCardHtml(m, null)).join('') || '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Матчей нет</div></div>'}
+        </div>
+      </div>
+
+      <div>
+        <div class="card-header" style="margin-bottom:16px">
+          <div>
+            <div class="card-title">💰 Последние ставки</div>
+            <div class="card-sub">Виртуальный банк</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="navigate('bets')">Все →</button>
+        </div>
+        ${stats && stats.recent && stats.recent.length ? `
+          <div class="card" style="margin-bottom:16px">
+            <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:16px;text-align:center">
+              <div>
+                <div style="font-size:22px;font-weight:800;color:${roi>=0?'var(--green)':'var(--red)'}">${roiSign}${roi.toFixed(1)}%</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">ROI</div>
+              </div>
+              <div>
+                <div style="font-size:22px;font-weight:800">${wr.toFixed(0)}%</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">Винрейт</div>
+              </div>
+              <div>
+                <div style="font-size:22px;font-weight:800;color:${stats.total_profit>=0?'var(--green)':'var(--red)'}">${stats.total_profit>=0?'+':''}${stats.total_profit.toFixed(0)}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px">P&L</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${stats.recent.slice(0,5).map(b => betRowHtml(b)).join('')}
+          </div>
+        ` : '<div class="empty"><div class="empty-icon">💰</div><div class="empty-text">Ставок пока нет</div><div class="empty-sub">Анализируй матчи — ставки появятся автоматически</div></div>'}
+      </div>
+    </div>
+  `;
+}
+
+function betRowHtml(b) {
+  return `
+    <div class="card" style="padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${betStatusHtml(b.status)}
+        <span style="font-size:13px;font-weight:600;color:var(--text)">${escHtml(b.bet_team)}</span>
+        <span style="font-size:12px;color:var(--text3)">@ ${b.odds.toFixed(2)}</span>
+        <span class="game-badge ${b.game}" style="font-size:10px">${b.game.toUpperCase()}</span>
+        <span style="margin-left:auto;font-size:12px;color:${b.profit>=0?'var(--green)':'var(--red)'};font-weight:700">
+          ${b.profit!=null ? (b.profit>=0?'+':'')+b.profit.toFixed(0)+' ед.' : ''}
+        </span>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-top:4px">${escHtml(b.team1)} vs ${escHtml(b.team2)}</div>
+    </div>`;
+}
+
+// ====== TODAY ======
+async function renderToday(content) {
+  const data = await api('/api/today');
+  if (!data.length) {
+    content.innerHTML = '<div class="empty"><div class="empty-icon">🎯</div><div class="empty-text">Матчей на сегодня нет</div><div class="empty-sub">База обновляется автоматически каждые 2 часа</div></div>';
+    return;
+  }
+
+  const cs2 = data.filter(d => d.match.game === 'cs2');
+  const dota = data.filter(d => d.match.game === 'dota2');
+
+  function gameSection(items, label, game) {
+    if (!items.length) return '';
+    return `
+      <div style="margin-bottom:28px">
+        <div style="font-size:13px;font-weight:700;color:${gameColor(game)};margin-bottom:14px;display:flex;align-items:center;gap:8px">
+          <span style="width:10px;height:10px;border-radius:50%;background:${gameColor(game)};display:inline-block"></span>
+          ${label} — ${items.length} матчей
+        </div>
+        <div class="grid grid-3" style="gap:12px">
+          ${items.map(d => matchCardHtml(d.match, d.prediction)).join('')}
+        </div>
+      </div>`;
+  }
+
+  content.innerHTML = `
+    <div style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div>
+        <span style="font-size:15px;font-weight:700">Всего матчей: <b style="color:var(--accent2)">${data.length}</b></span>
+        <span style="color:var(--text3);font-size:13px;margin-left:12px">Нажми на карточку для полного анализа</span>
+      </div>
+    </div>
+    ${gameSection(cs2, 'CS2', 'cs2')}
+    ${gameSection(dota, 'Dota 2', 'dota2')}
+  `;
+}
+
+// ====== MATCHES ======
+async function renderMatches(content, game) {
+  const data = await api(`/api/matches/upcoming?game=${game}&hours=48`);
+
+  const live = data.filter(m => m.status === 'live');
+  const upcoming = data.filter(m => m.status === 'upcoming');
+
+  let html = '';
+
+  if (live.length) {
+    html += `
+      <div style="margin-bottom:24px">
+        <div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:12px">🔴 LIVE — ${live.length} матч(а)</div>
+        <div class="grid grid-3" style="gap:12px">${live.map(m=>matchCardHtml(m,null)).join('')}</div>
+      </div>`;
+  }
+
+  if (upcoming.length) {
+    html += `
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:12px">📅 Предстоящие — ${upcoming.length}</div>
+        <div class="grid grid-3" style="gap:12px">${upcoming.map(m=>matchCardHtml(m,null)).join('')}</div>
+      </div>`;
+  }
+
+  if (!data.length) {
+    html = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Матчей не найдено</div><div class="empty-sub">База обновляется каждые 2 часа</div></div>';
+  }
+
+  content.innerHTML = html;
+}
+
+// ====== RESULTS ======
+async function renderResults(content) {
+  const tabs = [
+    {id:'all',label:'Все'},
+    {id:'cs2',label:'CS2'},
+    {id:'dota2',label:'Dota2'},
+  ];
+  let activeTab = 'all';
+
+  async function loadResults() {
+    const game = activeTab === 'all' ? '' : activeTab;
+    const data = await api(`/api/matches/results${game?'?game='+game:''}&limit=40`);
+    return data;
+  }
+
+  async function render() {
+    const listEl = document.getElementById('results-list');
+    listEl.innerHTML = '<div class="loader"><div class="spin"></div></div>';
+    const data = await loadResults();
+
+    if (!data.length) {
+      listEl.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">Результатов нет</div></div>';
+      return;
+    }
+
+    listEl.innerHTML = `
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Игра</th>
+                <th>Матч</th>
+                <th>Счёт</th>
+                <th>Турнир</th>
+                <th>Формат</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(m => `
+                <tr style="cursor:pointer" onclick="openMatch(${m.id}, '${escHtml(m.team1)}', '${escHtml(m.team2)}', '${m.game}')">
+                  <td>${fmtDate(m.scheduled_at)}</td>
+                  <td><span class="game-badge ${m.game}">${m.game.toUpperCase()}</span></td>
+                  <td><b>${escHtml(m.team1)}</b> vs <b>${escHtml(m.team2)}</b></td>
+                  <td style="font-weight:700;color:var(--text)">${m.score_team1!=null?m.score_team1+':'+m.score_team2:'—'}</td>
+                  <td style="color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.tournament||'—')}</td>
+                  <td><span class="format-badge">${escHtml(m.match_format||'—')}</span></td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  content.innerHTML = `
+    <div class="tabs" style="margin-bottom:20px">
+      ${tabs.map(t => `<div class="tab ${t.id===activeTab?'active':''}" onclick="switchResultTab('${t.id}')">${t.label}</div>`).join('')}
+    </div>
+    <div id="results-list"></div>`;
+
+  window.switchResultTab = async (tab) => {
+    activeTab = tab;
+    content.querySelectorAll('.tab').forEach(el => {
+      el.classList.toggle('active', el.textContent.toLowerCase().replace(' ','') === tab || (tab==='all' && el.textContent==='Все'));
+    });
+    await render();
+  };
+
+  await render();
+}
+
+// ====== BETS ======
+async function renderBets(content) {
+  const [stats, bets] = await Promise.all([
+    api('/api/bets/stats'),
+    api('/api/bets/list?limit=50'),
+  ]);
+
+  const roi = stats.roi || 0;
+  const wr = stats.winrate || 0;
+  const roiSign = roi >= 0 ? '+' : '';
+  const profitSign = (stats.total_profit||0) >= 0 ? '+' : '';
+
+  let tabs = ['все', 'pending', 'won', 'lost'];
+  let activeTab = 'все';
+
+  function filterBets(tab) {
+    if (tab === 'все') return bets;
+    return bets.filter(b => b.status === tab);
+  }
+
+  function renderList(tab) {
+    const filtered = filterBets(tab);
+    const list = document.getElementById('bets-list');
+    if (!filtered.length) {
+      list.innerHTML = '<div class="empty"><div class="empty-icon">💰</div><div class="empty-text">Ставок нет</div></div>';
+      return;
+    }
+    list.innerHTML = `
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Матч</th>
+                <th>Ставка</th>
+                <th>Кэф</th>
+                <th>Уверен.</th>
+                <th>Счёт</th>
+                <th>Статус</th>
+                <th>P&L</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map(b => `
+                <tr>
+                  <td>${fmtDate(b.created_at)}</td>
+                  <td><div style="font-size:13px"><b>${escHtml(b.team1)}</b> vs <b>${escHtml(b.team2)}</b></div>
+                    <div style="font-size:11px;color:var(--text3)">${b.game.toUpperCase()}</div></td>
+                  <td style="color:var(--accent2);font-weight:700">${escHtml(b.bet_team)}</td>
+                  <td>${b.odds.toFixed(2)}</td>
+                  <td><span class="conf-badge ${b.confidence}" style="font-size:10px">${confDot(b.confidence)} ${b.confidence}</span></td>
+                  <td style="font-weight:700">${b.actual_score||'—'}</td>
+                  <td>${betStatusHtml(b.status)}</td>
+                  <td style="font-weight:800;color:${b.profit>0?'var(--green)':b.profit<0?'var(--red)':'var(--text3)'}">
+                    ${b.profit!=null ? (b.profit>=0?'+':'')+b.profit.toFixed(0) : '—'}
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  content.innerHTML = `
+    <div class="grid grid-4" style="margin-bottom:24px">
+      <div class="stat-card">
+        <div class="stat-label">ROI</div>
+        <div class="stat-value" style="color:${roi>=0?'var(--green)':'var(--red)'}">${roiSign}${roi.toFixed(1)}%</div>
+        <div class="stat-sub">${stats.total || 0} ставок</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Винрейт</div>
+        <div class="stat-value" style="color:${wr>=55?'var(--green)':wr>=45?'var(--yellow)':'var(--red)'}">${wr.toFixed(1)}%</div>
+        <div class="stat-sub">${stats.won||0}W / ${stats.lost||0}L</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">P&L</div>
+        <div class="stat-value" style="color:${(stats.total_profit||0)>=0?'var(--green)':'var(--red)'}">${profitSign}${(stats.total_profit||0).toFixed(0)}</div>
+        <div class="stat-sub">виртуальных единиц</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">В ожидании</div>
+        <div class="stat-value" style="color:var(--yellow)">${stats.pending||0}</div>
+        <div class="stat-sub">ещё не сыграли</div>
+      </div>
+    </div>
+
+    ${stats.by_conf && Object.keys(stats.by_conf).length ? `
+      <div class="card" style="margin-bottom:24px">
+        <div class="card-header"><div class="card-title">🔬 По уверенности предиктора</div></div>
+        <div class="grid grid-2" style="gap:12px">
+          ${Object.entries(stats.by_conf).map(([conf,d]) => {
+            const cwr = d.total ? (d.won/d.total*100).toFixed(0) : 0;
+            const cp = d.profit||0;
+            return `<div style="background:var(--bg3);border-radius:var(--radius-sm);padding:14px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <span class="conf-badge ${conf}">${confDot(conf)} ${conf}</span>
+                <span style="font-size:12px;color:var(--text3)">${d.total} ставок</span>
+              </div>
+              <div style="display:flex;gap:20px">
+                <div><div style="font-size:18px;font-weight:800">${cwr}%</div><div style="font-size:11px;color:var(--text3)">Винрейт</div></div>
+                <div><div style="font-size:18px;font-weight:800;color:${cp>=0?'var(--green)':'var(--red)'}">${cp>=0?'+':''}${cp.toFixed(0)}</div><div style="font-size:11px;color:var(--text3)">P&L</div></div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>` : ''}
+
+    <div class="tabs" style="margin-bottom:16px">
+      ${tabs.map(t => `<div class="tab ${t===activeTab?'active':''}" onclick="switchBetTab('${t}')">${t==='все'?'Все':t==='pending'?'⏳ Ожидание':t==='won'?'✅ Выиграно':'❌ Проиграно'}</div>`).join('')}
+    </div>
+    <div id="bets-list"></div>`;
+
+  window.switchBetTab = (tab) => {
+    activeTab = tab;
+    content.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+    content.querySelectorAll('.tab')[tabs.indexOf(tab)].classList.add('active');
+    renderList(tab);
+  };
+
+  renderList(activeTab);
+}
+
+// ====== TEAMS ======
+async function renderTeams(content) {
+  let activeGame = 'cs2';
+  let searchTimer = null;
+
+  async function loadTeams(game, search='') {
+    return api(`/api/teams?game=${game}&limit=50${search?'&search='+encodeURIComponent(search):''}`);
+  }
+
+  function teamRowHtml(t) {
+    const wr = t.winrate || 0;
+    return `
+      <tr onclick="openTeam('${escHtml(t.name)}', '${t.game}')" style="cursor:pointer">
+        <td><span class="team-link">${escHtml(t.name)}</span>${t.tag?` <span style="color:var(--text3);font-size:11px">[${escHtml(t.tag)}]</span>`:''}</td>
+        <td style="font-weight:700">${t.rating!=null ? Math.round(t.rating) : '—'}</td>
+        <td style="color:var(--green)">${t.wins}</td>
+        <td style="color:var(--red)">${t.losses}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;width:60px">
+              <div style="width:${wr}%;height:100%;background:${wr>=60?'var(--green)':wr>=45?'var(--yellow)':'var(--red)'};border-radius:2px"></div>
+            </div>
+            <span style="font-size:12px;font-weight:700;color:${wr>=60?'var(--green)':wr>=45?'var(--yellow)':'var(--red)'}">${wr.toFixed(0)}%</span>
+          </div>
+        </td>
+        <td style="color:var(--text3);font-size:11px">${t.source}</td>
+      </tr>`;
+  }
+
+  async function render(search='') {
+    const listEl = document.getElementById('teams-list');
+    listEl.innerHTML = '<div class="loader"><div class="spin"></div></div>';
+    const teams = await loadTeams(activeGame, search);
+    if (!teams.length) {
+      listEl.innerHTML = '<div class="empty"><div class="empty-icon">🏆</div><div class="empty-text">Команды не найдены</div></div>';
+      return;
+    }
+    listEl.innerHTML = `
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Команда</th><th>Рейтинг</th><th>W</th><th>L</th><th>Винрейт</th><th>Источник</th></tr></thead>
+            <tbody>${teams.map(teamRowHtml).join('')}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  content.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <div class="tabs" style="margin-bottom:0">
+        <div class="tab active" onclick="switchTeamGame('cs2')">🔫 CS2</div>
+        <div class="tab" onclick="switchTeamGame('dota2')">🗡️ Dota2</div>
+      </div>
+      <div class="search-wrap" style="flex:1;min-width:200px;max-width:360px">
+        <span class="search-icon">🔍</span>
+        <input type="text" placeholder="Поиск команды..." id="team-search" oninput="onTeamSearch(this.value)">
+      </div>
+    </div>
+    <div id="teams-list"></div>`;
+
+  window.switchTeamGame = (game) => {
+    activeGame = game;
+    content.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', i===(game==='cs2'?0:1)));
+    render(document.getElementById('team-search')?.value || '');
+  };
+  window.onTeamSearch = (val) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => render(val), 400);
+  };
+
+  await render();
+}
+
+// ====== MATCH MODAL ======
+async function openMatch(id, team1, team2, game) {
+  const modal = document.getElementById('modal-overlay');
+  const mc = document.getElementById('modal-content');
+  mc.innerHTML = '<div class="loader"><div class="spin"></div> Анализирую матч...</div>';
+  modal.classList.add('open');
+
+  try {
+    const pred = await api(`/api/predict?team1=${encodeURIComponent(team1)}&team2=${encodeURIComponent(team2)}&game=${game}&match_id=${id}`);
+    const p1 = Math.round(pred.team1_prob * 100);
+    const p2 = Math.round(pred.team2_prob * 100);
+    const winner = pred.winner;
+
+    const t1 = pred.team1_stats || {};
+    const t2 = pred.team2_stats || {};
+
+    function statBlock(name, stats, side) {
+      if (!stats) return `<div class="card" style="background:var(--bg2)"><div style="color:var(--text2);font-weight:700;margin-bottom:8px">${escHtml(name)}</div><div style="color:var(--text3);font-size:13px">Нет данных</div></div>`;
+      const total = (stats.wins||0)+(stats.losses||0);
+      const wr = total ? (stats.wins/total*100).toFixed(0) : 0;
+      return `
+        <div class="card" style="background:var(--bg2)">
+          <div style="font-size:15px;font-weight:800;color:${winner===name?'var(--green)':'var(--text)'};margin-bottom:12px;display:flex;align-items:center;gap:8px">
+            ${winner===name?'👑':''} ${escHtml(name)}
+          </div>
+          <div class="info-row"><span class="label">Рейтинг</span><span class="val">${stats.rating!=null?Math.round(stats.rating):'—'}</span></div>
+          <div class="info-row"><span class="label">W / L</span><span class="val">${stats.wins||0} / ${stats.losses||0} <span style="color:var(--text3)">(${wr}%)</span></span></div>
+          <div class="info-row"><span class="label">Форма</span><span class="val">${formHtml(stats.form)}</span></div>
+          ${stats.players&&stats.players.length ? `
+            <div style="margin-top:10px">
+              <div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em">Состав</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px">${stats.players.map(p=>`<div class="player-chip"><span class="pname">${escHtml(p.nickname)}</span></div>`).join('')}</div>
+            </div>` : ''}
+          ${stats.recent_matches&&stats.recent_matches.length ? `
+            <div style="margin-top:12px">
+              <div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em">Последние матчи</div>
+              ${stats.recent_matches.slice(0,4).map(m=>{
+                const d = m.date ? fmtDate(m.date) : '—';
+                return `<div style="font-size:12px;color:var(--text2);padding:3px 0">${d} <b style="color:var(--text)">${escHtml(m.team1)}</b> ${escHtml(m.score||'?:?')} <b style="color:var(--text)">${escHtml(m.team2)}</b></div>`;
+              }).join('')}
+            </div>` : ''}
+        </div>`;
+    }
+
+    mc.innerHTML = `
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span class="game-badge ${game}">${game.toUpperCase()}</span>
+          ${pred.tournament ? `<span style="color:var(--text3);font-size:12px">🏆 ${escHtml(pred.tournament)}</span>` : ''}
+          ${pred.match_format ? `<span class="format-badge">${escHtml(pred.match_format)}</span>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:22px;font-weight:800;color:${winner===team1?'var(--green)':'var(--text)'}">${escHtml(team1)}</span>
+          <span style="color:var(--text3);font-weight:700">VS</span>
+          <span style="font-size:22px;font-weight:800;color:${winner===team2?'var(--green)':'var(--text)'}">${escHtml(team2)}</span>
+        </div>
+        ${pred.scheduled_at ? `<div style="font-size:13px;color:var(--text3);margin-top:6px">🕐 ${fmtTime(pred.scheduled_at)} ЕКБ</div>` : ''}
+      </div>
+
+      <div class="card" style="background:var(--bg2);margin-bottom:16px">
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">🤖 Предикт бота</div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+          <span style="font-size:14px;font-weight:700;color:${winner===team1?'var(--green)':'var(--text2)'}">${p1}%</span>
+          <span style="font-size:14px;font-weight:700;color:${winner===team2?'var(--green)':'var(--text2)'}">${p2}%</span>
+        </div>
+        <div class="pred-track" style="height:8px;margin-bottom:10px"><div class="pred-fill" style="width:${p1}%"></div></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:13px;color:var(--text)">Победитель: <b style="color:var(--green)">👑 ${escHtml(winner)}</b></span>
+          <span class="conf-badge ${pred.confidence}">${confDot(pred.confidence)} ${pred.confidence}</span>
+        </div>
+        ${pred.reasoning&&pred.reasoning.length ? `
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            ${pred.reasoning.map(r=>`<div style="font-size:12px;color:var(--text3);padding:2px 0">• ${escHtml(r)}</div>`).join('')}
+          </div>` : ''}
+      </div>
+
+      <div class="grid grid-2" style="gap:12px;margin-bottom:16px">
+        ${statBlock(team1, t1, 'left')}
+        ${statBlock(team2, t2, 'right')}
+      </div>
+
+      ${pred.head_to_head&&pred.head_to_head.length ? `
+        <div class="card" style="background:var(--bg2)">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">📊 История встреч (H2H)</div>
+          ${pred.head_to_head.slice(0,6).map(m => {
+            const d = m.date ? fmtDate(m.date) : '—';
+            return `<div style="display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+              <span style="color:var(--text3);min-width:70px">${d}</span>
+              <span style="color:var(--text)"><b>${escHtml(m.team1)}</b> ${escHtml(m.score||'?:?')} <b>${escHtml(m.team2)}</b></span>
+            </div>`;
+          }).join('')}
+        </div>` : ''}
+    `;
+  } catch(e) {
+    mc.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Ошибка анализа</div><div class="empty-sub">${e.message}</div></div>`;
+  }
+}
+
+// ====== TEAM MODAL ======
+async function openTeam(name, game) {
+  const modal = document.getElementById('modal-overlay');
+  const mc = document.getElementById('modal-content');
+  mc.innerHTML = '<div class="loader"><div class="spin"></div> Загрузка команды...</div>';
+  modal.classList.add('open');
+
+  try {
+    const t = await api(`/api/team/${encodeURIComponent(name)}?game=${game}`);
+    const total = (t.wins||0)+(t.losses||0);
+    const wr = total ? (t.wins/total*100).toFixed(1) : 0;
+
+    mc.innerHTML = `
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span class="game-badge ${game}">${game.toUpperCase()}</span>
+          ${t.sources&&t.sources.length?t.sources.map(s=>`<span style="font-size:11px;color:var(--text3)">${s}</span>`).join(''):''}
+        </div>
+        <div style="font-size:26px;font-weight:900;color:var(--text)">${escHtml(t.name)}</div>
+      </div>
+
+      <div class="grid grid-3" style="gap:12px;margin-bottom:20px">
+        <div class="stat-card" style="padding:14px">
+          <div class="stat-label">Рейтинг</div>
+          <div class="stat-value" style="font-size:22px">${t.rating!=null?Math.round(t.rating):'—'}</div>
+        </div>
+        <div class="stat-card" style="padding:14px">
+          <div class="stat-label">W / L</div>
+          <div class="stat-value" style="font-size:22px">${t.wins||0} / ${t.losses||0}</div>
+        </div>
+        <div class="stat-card" style="padding:14px">
+          <div class="stat-label">Винрейт</div>
+          <div class="stat-value" style="font-size:22px;color:${wr>=60?'var(--green)':wr>=45?'var(--yellow)':'var(--red)'}">${wr}%</div>
+        </div>
+      </div>
+
+      ${t.form ? `
+        <div class="card" style="background:var(--bg2);margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:13px;font-weight:700;color:var(--text)">Последняя форма</span>
+            ${formHtml(t.form)}
+          </div>
+        </div>` : ''}
+
+      ${t.players&&t.players.length ? `
+        <div class="card" style="background:var(--bg2);margin-bottom:16px">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">👥 Состав</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${t.players.map(p=>`<div class="player-chip"><span class="pname">${escHtml(p.nickname)}</span>${p.real_name?` <span style="color:var(--text3)">${escHtml(p.real_name)}</span>`:''}</div>`).join('')}
+          </div>
+        </div>` : ''}
+
+      ${t.recent_matches&&t.recent_matches.length ? `
+        <div class="card" style="background:var(--bg2);margin-bottom:16px">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">📋 Последние матчи</div>
+          ${t.recent_matches.slice(0,8).map(m=>{
+            const d = m.date ? fmtDate(m.date) : '—';
+            return `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+              <span style="color:var(--text3);min-width:70px">${d}</span>
+              <span><b style="color:var(--text)">${escHtml(m.team1)}</b> ${escHtml(m.score||'?:?')} <b style="color:var(--text)">${escHtml(m.team2)}</b></span>
+            </div>`;
+          }).join('')}
+        </div>` : ''}
+
+      ${t.last_patch ? `
+        <div class="card" style="background:var(--bg2)">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">🔧 Актуальный патч</div>
+          <div style="display:flex;gap:12px;align-items:center">
+            <span style="font-size:20px;font-weight:800;color:var(--accent2)">${escHtml(t.last_patch.version)}</span>
+            <span style="color:var(--text3);font-size:12px">${t.last_patch.released_at ? fmtDate(t.last_patch.released_at) : ''}</span>
+            ${t.last_patch.url ? `<a href="${escHtml(t.last_patch.url)}" target="_blank" style="color:var(--accent);font-size:12px;margin-left:auto">Читать →</a>` : ''}
+          </div>
+        </div>` : ''}
+    `;
+  } catch(e) {
+    mc.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Ошибка загрузки</div><div class="empty-sub">${e.message}</div></div>`;
+  }
+}
+
+// ====== MODAL CLOSE ======
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay') && !e.target.classList.contains('modal-close')) return;
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal({target:document.getElementById('modal-overlay')}); });
+
+// ====== INIT ======
+navigate('dashboard');
+
+// Auto-refresh every 5 minutes
+setInterval(() => { if(currentPage==='dashboard'||currentPage==='today') loadPage(currentPage); }, 5*60*1000);
+</script>
+</body>
+</html>

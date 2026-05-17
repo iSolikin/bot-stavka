@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
 from config import config
-from db.models import Match, Player, Team
+from db.models import Match, Player, Team, MatchDetailStats
 from aggregator.aggregator import normalize_team_name
 
 logger = logging.getLogger(__name__)
@@ -335,6 +335,201 @@ class OpenDotaCollector:
         return total
 
 
+    async def fetch_match_detail(self, match_id: int) -> dict | None:
+        """Получить детальную статистику одного матча."""
+        return await self._get(f"/matches/{match_id}")
+
+    @staticmethod
+    def _count_towers_destroyed(status_bits: int, total: int = 9) -> int:
+        """Считаем уничтоженные башни из bitmask (1=стоит, 0=снесена)."""
+        standing = bin(status_bits).count("1")
+        return max(0, total - standing)
+
+    @staticmethod
+    def _had_megacreeps(radiant_barracks: int, dire_barracks: int) -> bool:
+        """Были ли мегакрипы (все казармы одной стороны снесены)."""
+        return radiant_barracks == 0 or dire_barracks == 0
+
+    @staticmethod
+    def _first_blood_team(objectives: list, is_team1_radiant: bool) -> str | None:
+        """Определяем кто взял первую кровь."""
+        for obj in objectives:
+            if obj.get("type") == "CHAT_MESSAGE_FIRSTBLOOD":
+                # player_slot 0-4 = radiant, 128-132 = dire
+                slot = obj.get("player_slot", -1)
+                fb_radiant = slot is not None and slot < 100
+                if is_team1_radiant:
+                    return "team1" if fb_radiant else "team2"
+                else:
+                    return "team2" if fb_radiant else "team1"
+        return None
+
+    @staticmethod
+    def _first_tower_team(objectives: list, is_team1_radiant: bool) -> str | None:
+        """Кто снёс первую башню."""
+        for obj in sorted(objectives, key=lambda o: o.get("time", 9999)):
+            if obj.get("type") in ("CHAT_MESSAGE_TOWER_KILL", "building_kill"):
+                # team = 2 (radiant kills) или 3 (dire kills)
+                team = obj.get("team")
+                if team == 2:  # radiant team kills
+                    return "team1" if is_team1_radiant else "team2"
+                elif team == 3:
+                    return "team2" if is_team1_radiant else "team1"
+        return None
+
+    @staticmethod
+    def _count_roshans(objectives: list) -> int:
+        """Считаем убийства Рошана."""
+        return sum(1 for o in objectives if "ROSHAN" in o.get("type", "").upper())
+
+    async def save_match_detail_stats(
+        self,
+        db: AsyncSession,
+        match_ids: list[int],
+        team_name_map: dict[int, tuple[str, str, bool]],  # match_id → (team1_name, team2_name, team1_is_radiant)
+    ) -> int:
+        """
+        Загружаем детальную статистику для списка match_id.
+        team_name_map: {match_id: (team1_name, team2_name, team1_is_radiant)}
+        """
+        saved = 0
+        for match_id in match_ids:
+            ext_id = str(match_id)
+            # Проверяем дубликат
+            dup = await db.execute(
+                select(MatchDetailStats).where(
+                    MatchDetailStats.external_match_id == ext_id,
+                    MatchDetailStats.source == "opendota",
+                )
+            )
+            if dup.scalar_one_or_none():
+                continue
+
+            detail = await self.fetch_match_detail(match_id)
+            if not detail or "match_id" not in detail:
+                await asyncio.sleep(1)
+                continue
+
+            team1_name, team2_name, t1_radiant = team_name_map.get(
+                match_id, ("Team 1", "Team 2", True)
+            )
+
+            # Килы
+            r_score = detail.get("radiant_score", 0) or 0
+            d_score = detail.get("dire_score", 0) or 0
+            t1_kills = r_score if t1_radiant else d_score
+            t2_kills = d_score if t1_radiant else r_score
+
+            # Башни
+            r_towers = detail.get("tower_status_radiant", 511) or 511  # 511 = все стоят
+            d_towers = detail.get("tower_status_dire", 511) or 511
+            t1_towers_dest = self._count_towers_destroyed(d_towers if t1_radiant else r_towers)
+            t2_towers_dest = self._count_towers_destroyed(r_towers if t1_radiant else d_towers)
+
+            # Казармы / мегакрипы
+            r_barracks = detail.get("barracks_status_radiant", 63) or 63
+            d_barracks = detail.get("barracks_status_dire", 63) or 63
+            megacreeps = self._had_megacreeps(r_barracks, d_barracks)
+
+            # Objectives (первая кровь, рошаны, первая башня)
+            objectives = detail.get("objectives") or []
+            fb_team = self._first_blood_team(objectives, t1_radiant)
+            ft_team = self._first_tower_team(objectives, t1_radiant)
+            roshans = self._count_roshans(objectives)
+
+            # Победитель
+            radiant_win = bool(detail.get("radiant_win"))
+            winner = ("team1" if radiant_win else "team2") if t1_radiant else \
+                     ("team2" if radiant_win else "team1")
+
+            start_time = detail.get("start_time")
+            match_date = datetime.utcfromtimestamp(start_time) if start_time else None
+
+            stat = MatchDetailStats(
+                external_match_id=ext_id,
+                source="opendota",
+                game="dota2",
+                team1_name=team1_name,
+                team2_name=team2_name,
+                winner=winner,
+                duration_seconds=detail.get("duration"),
+                total_kills=r_score + d_score,
+                team1_kills=t1_kills,
+                team2_kills=t2_kills,
+                team1_towers=t1_towers_dest,
+                team2_towers=t2_towers_dest,
+                total_towers=t1_towers_dest + t2_towers_dest,
+                total_roshans=roshans,
+                first_blood_team=fb_team,
+                first_tower_team=ft_team,
+                had_megacreeps=megacreeps,
+                match_date=match_date,
+                tournament=detail.get("league", {}).get("name") if isinstance(detail.get("league"), dict) else None,
+            )
+            db.add(stat)
+            saved += 1
+            await asyncio.sleep(0.5)  # rate limit: 60 req/min без ключа
+
+            if saved % 20 == 0:
+                await db.commit()
+                logger.info("OpenDota detail stats: saved %d so far", saved)
+
+        if saved:
+            await db.commit()
+        return saved
+
+    async def sync_detail_stats_for_teams(
+        self, db: AsyncSession, top_n: int = 30, games_per_team: int = 20
+    ) -> int:
+        """
+        Для топ-N команд загружаем детальную статистику последних игр.
+        """
+        from db.models import Team as TeamModel
+        result = await db.execute(
+            select(TeamModel)
+            .where(TeamModel.source == "opendota", TeamModel.game == "dota2")
+            .order_by(TeamModel.rating.desc())
+            .limit(top_n)
+        )
+        teams = result.scalars().all()
+        logger.info("OpenDota: syncing detail stats for %d teams", len(teams))
+
+        total = 0
+        for team in teams:
+            try:
+                team_id = int(team.external_id)
+            except (ValueError, TypeError):
+                continue
+
+            raw = await self.fetch_team_matches(team_id)
+            if not raw:
+                continue
+
+            # Берём последние N игр
+            recent = sorted(raw, key=lambda m: m.get("start_time", 0), reverse=True)[:games_per_team]
+
+            match_ids = []
+            name_map = {}
+            for m in recent:
+                mid = m.get("match_id")
+                if not mid:
+                    continue
+                opposing = (m.get("opposing_team_name") or "").strip() or "Unknown"
+                is_radiant = bool(m.get("radiant"))
+                t1_name = team.name if is_radiant else opposing
+                t2_name = opposing if is_radiant else team.name
+                match_ids.append(mid)
+                name_map[mid] = (t1_name, t2_name, is_radiant)
+
+            saved = await self.save_match_detail_stats(db, match_ids, name_map)
+            total += saved
+            logger.info("OpenDota detail stats: %s → %d games", team.name, saved)
+            await asyncio.sleep(1)
+
+        logger.info("OpenDota detail stats sync complete: %d total", total)
+        return total
+
+
 async def run_opendota_sync(db: AsyncSession) -> None:
     """Точка входа для планировщика (быстрый, каждые 2 часа)."""
     async with aiohttp.ClientSession() as http:
@@ -354,3 +549,11 @@ async def run_opendota_history_sync(db: AsyncSession) -> None:
         # Загружаем историю по каждой команде
         await collector.save_team_matches_bulk(db, top_n=60)
         logger.info("OpenDota history sync complete")
+
+
+async def run_opendota_detail_stats_sync(db: AsyncSession) -> None:
+    """Точка входа для сбора детальной статистики (kills, towers, roshans)."""
+    async with aiohttp.ClientSession() as http:
+        collector = OpenDotaCollector(http)
+        await collector.sync_detail_stats_for_teams(db, top_n=40, games_per_team=25)
+        logger.info("OpenDota detail stats sync complete")

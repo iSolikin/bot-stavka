@@ -71,6 +71,30 @@ def _rating_score(rating1: float | None, rating2: float | None) -> tuple[float, 
     return p1, 1.0 - p1
 
 
+def _news_adjustment(events: list) -> tuple[float, list[str]]:
+    """
+    Считает суммарный сдвиг вероятности из NewsEvent-объектов или словарей.
+    Возвращает (adjustment_float, reasoning_lines).
+    """
+    if not events:
+        return 0.0, []
+
+    total = 0.0
+    notes = []
+    for ev in events[:5]:  # не более 5 событий
+        impact = ev.impact if hasattr(ev, "impact") else ev.get("impact", 0.0)
+        etype = ev.event_type if hasattr(ev, "event_type") else ev.get("event_type", "")
+        summary = ev.summary if hasattr(ev, "summary") else ev.get("summary", etype)
+        total += float(impact or 0.0)
+
+        sign = "📈" if impact > 0 else "📉"
+        notes.append(f"{sign} {summary or etype} ({impact:+.2f})")
+
+    # Ограничиваем суммарный сдвиг: не более ±0.25 на команду
+    total = max(-0.25, min(0.25, total))
+    return total, notes
+
+
 def predict(
     team1: str,
     team2: str,
@@ -81,6 +105,8 @@ def predict(
     h2h_matches: list[dict],
     team1_odds: float | None = None,
     team2_odds: float | None = None,
+    team1_events: list | None = None,   # список NewsEvent или dict
+    team2_events: list | None = None,
 ) -> Prediction:
     reasoning = []
 
@@ -110,13 +136,30 @@ def predict(
         total_imp = imp1 + imp2
         odds_p1 = imp1 / total_imp
         odds_p2 = imp2 / total_imp
-        # Кэфы дают 20%, остальное пересчитываем на 80%
         raw1 = f1 * 0.32 + r1 * 0.24 + h1 * 0.24 + odds_p1 * 0.20
         raw2 = f2 * 0.32 + r2 * 0.24 + h2 * 0.24 + odds_p2 * 0.20
         reasoning.append(f"Кэфы: {team1} {team1_odds:.2f} / {team2} {team2_odds:.2f}")
     else:
         raw1 = f1 * 0.40 + r1 * 0.30 + h1 * 0.30
         raw2 = f2 * 0.40 + r2 * 0.30 + h2 * 0.30
+
+    # --- Новостные события (Gemini / keywords) ---
+    adj1, notes1 = _news_adjustment(team1_events or [])
+    adj2, notes2 = _news_adjustment(team2_events or [])
+
+    if notes1:
+        reasoning.append(f"📰 Новости {team1}:")
+        reasoning.extend(f"  {n}" for n in notes1)
+    if notes2:
+        reasoning.append(f"📰 Новости {team2}:")
+        reasoning.extend(f"  {n}" for n in notes2)
+
+    # Применяем сдвиг пропорционально текущим raw-значениям
+    total_raw = raw1 + raw2 if (raw1 + raw2) > 0 else 1.0
+    raw1 += adj1 * total_raw * 0.5   # масштабируем чтобы не доминировало
+    raw2 += adj2 * total_raw * 0.5
+    raw1 = max(0.01, raw1)
+    raw2 = max(0.01, raw2)
 
     total = raw1 + raw2
     p1 = raw1 / total if total > 0 else 0.5

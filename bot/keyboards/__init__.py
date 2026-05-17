@@ -11,7 +11,10 @@ def main_menu() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔮 Предикты на сегодня", callback_data="today_all"),
         ],
         [
+            InlineKeyboardButton(text="📰 Новости", callback_data="news_all_24"),
             InlineKeyboardButton(text="💰 Демо-ставки", callback_data="demostats"),
+        ],
+        [
             InlineKeyboardButton(text="❓ Помощь", callback_data="help"),
         ],
     ])

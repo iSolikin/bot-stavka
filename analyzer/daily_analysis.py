@@ -80,6 +80,14 @@ async def analyze_all_today(db: AsyncSession) -> list[dict]:
             t1 = report.team1_stats
             t2 = report.team2_stats
 
+            # Новости о командах за последние 5 дней
+            try:
+                from analyzer.news_analyzer import get_team_news
+                t1_news = await get_team_news(db, m.team1_name, m.game, days=5, limit=2)
+                t2_news = await get_team_news(db, m.team2_name, m.game, days=5, limit=2)
+            except Exception:
+                t1_news, t2_news = [], []
+
             results.append({
                 "match_id": m.id,
                 "team1": m.team1_name,
@@ -96,6 +104,8 @@ async def analyze_all_today(db: AsyncSession) -> list[dict]:
                 "h2h_count": len(report.head_to_head),
                 "bet_placed": not already,  # поставили ставку сейчас
                 "already_analyzed": already,
+                "t1_news": t1_news,
+                "t2_news": t2_news,
             })
 
         except Exception as ex:
@@ -180,6 +190,25 @@ def format_daily_report(results: list[dict], game_filter: str | None = None) -> 
                 f"  Форма: `{f1}` vs `{f2}`\n"
                 f"  {c_emoji} Победитель: *{winner}* \\({p1pct}% / {p2pct}%\\) {bet_icon}\n"
             )
+
+            # Свежие новости о командах
+            all_news = list(r.get("t1_news") or []) + list(r.get("t2_news") or [])
+            if all_news:
+                from analyzer.news_analyzer import classify_message, shorten_text
+                news_lines = []
+                seen_ids = set()
+                for nm in all_news[:3]:
+                    if nm.id in seen_ids:
+                        continue
+                    seen_ids.add(nm.id)
+                    cat, _ = classify_message(nm.text or "")
+                    icon = {"roster": "🔄", "result": "🏆", "tournament": "🎯", "patch": "🔧"}.get(cat, "📰")
+                    date_s = nm.posted_at.strftime("%d.%m") if nm.posted_at else ""
+                    snippet = e(shorten_text(nm.text or "", 100))
+                    news_lines.append(f"  {icon} `{e(date_s)}` {snippet}")
+                if news_lines:
+                    line += "\n".join(news_lines) + "\n"
+
             current.append(line)
 
             # Сбрасываем часть если накопилось много

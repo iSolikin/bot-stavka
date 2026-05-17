@@ -52,6 +52,14 @@ class Analyzer:
             o1, o2 = oc.find_odds(team1, team2, odds_list)
             bookmaker = odds_list[0].get("bookmaker", "")
 
+        # Новостные события — могут изменить вероятность
+        try:
+            from analyzer.news_processor import get_team_events
+            t1_events = await get_team_events(self.db, team1, game)
+            t2_events = await get_team_events(self.db, team2, game)
+        except Exception:
+            t1_events, t2_events = [], []
+
         # Предикт
         pred = predict(
             team1=team1,
@@ -63,6 +71,8 @@ class Analyzer:
             h2h_matches=report.head_to_head,
             team1_odds=o1,
             team2_odds=o2,
+            team1_events=t1_events,
+            team2_events=t2_events,
         )
 
         # Авто-ставка в демо-режиме
@@ -103,6 +113,14 @@ class Analyzer:
         t1 = report.team1_stats
         t2 = report.team2_stats
 
+        # Новостные события для обеих команд
+        try:
+            from analyzer.news_processor import get_team_events
+            t1_events = await get_team_events(self.db, team1, game)
+            t2_events = await get_team_events(self.db, team2, game)
+        except Exception:
+            t1_events, t2_events = [], []
+
         pred = predict(
             team1=team1,
             team2=team2,
@@ -111,6 +129,8 @@ class Analyzer:
             team1_rating=t1.rating if t1 else None,
             team2_rating=t2.rating if t2 else None,
             h2h_matches=report.head_to_head,
+            team1_events=t1_events,
+            team2_events=t2_events,
         )
 
         # Авто-ставка

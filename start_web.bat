@@ -32,6 +32,10 @@ if errorlevel 1 (
 echo.
 echo  Запуск сервера...
 echo.
-python -m uvicorn web_app:app --host 0.0.0.0 --port 8000 --reload
 
-pause
+:loop
+D:\Bot_Stavka\.venv\Scripts\python.exe -m uvicorn web_app:app --host 0.0.0.0 --port 8000
+echo.
+echo  [!] Сервер упал, перезапуск через 5 сек...
+timeout /t 5 /nobreak >nul
+goto loop

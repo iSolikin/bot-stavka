@@ -810,6 +810,10 @@ main { min-width: 0; display: flex; flex-direction: column; }
       <button class="nav-btn" data-page="teams" data-label="Команды" onclick="navigate('teams')">
         <span class="ic">⌖</span><span class="kanji">隊</span>
       </button>
+      <button class="nav-btn" data-page="news" data-label="Новости" onclick="navigate('news')">
+        <span class="ic">⌘</span><span class="kanji">報</span>
+        <span class="dot" id="badge-news" style="display:none">●</span>
+      </button>
     </nav>
     <div class="sidebar-foot">
       <div class="status-led" title="Сервер онлайн"></div>
@@ -866,6 +870,7 @@ const PAGES = {
   results:   { title: 'Результаты',  sub: 'завершённые матчи',   kanji: '結' },
   bets:      { title: 'Ставки',      sub: 'виртуальный банк',    kanji: '賭' },
   teams:     { title: 'Команды',     sub: 'рейтинги и состав',   kanji: '隊' },
+  news:      { title: 'Новости',     sub: 'события и трансферы', kanji: '報' },
 };
 let currentPage = 'dashboard';
 let cache = {};
@@ -950,6 +955,7 @@ async function loadPage(page) {
       case 'results':   await renderResults(c); break;
       case 'bets':      await renderBets(c); break;
       case 'teams':     await renderTeams(c); break;
+      case 'news':      await renderNews(c); break;
     }
     c.classList.add('fade-in');
     setTimeout(() => c.classList.remove('fade-in'), 400);
@@ -1001,11 +1007,12 @@ async function refreshBadges() {
 
 // ============ DASHBOARD ============
 async function renderDashboard(c) {
-  const [summary, betStats, upcoming, todayPreds] = await Promise.all([
+  const [summary, betStats, upcoming, todayPreds, newsEvs] = await Promise.all([
     api('/api/stats/summary'),
     api('/api/bets/stats'),
     api('/api/matches/upcoming?hours=48'),
     api('/api/today').catch(() => []),
+    api('/api/news/events?days=3&limit=40').catch(() => []),
   ]);
 
   const live = upcoming.filter(m => m.status === 'live');
@@ -1052,7 +1059,7 @@ async function renderDashboard(c) {
         </div>
         <div class="grid g-match">
           ${upcoming.length
-            ? upcoming.slice(0, 6).map(m => matchCardHtml(m, predictionForMatch(todayPreds, m.id))).join('')
+            ? upcoming.slice(0, 6).map(m => matchCardHtml(m, predictionForMatch(todayPreds, m.id), newsEvs)).join('')
             : '<div class="empty"><div class="ek">空</div><div class="et">Матчей нет</div><div class="es">Данные обновляются автоматически</div></div>'
           }
         </div>
@@ -1147,13 +1154,26 @@ function heroHtml(fire) {
   `;
 }
 
-function matchCardHtml(m, pred) {
+function matchCardHtml(m, pred, events) {
   const isLive = m.status === 'live';
   const p1 = pred ? Math.round(pred.team1_prob * 100) : null;
   const p2 = pred ? Math.round(pred.team2_prob * 100) : null;
   const t1Win = pred && pred.winner === m.team1;
   const t2Win = pred && pred.winner === m.team2;
   const showScore = m.score_team1 != null;
+
+  // Иконки событий для команд
+  const evs = events || [];
+  const t1name = (m.team1 || '').toLowerCase();
+  const t2name = (m.team2 || '').toLowerCase();
+  function teamEvBadge(tname) {
+    const teamEvs = evs.filter(e => e.team && tname.includes(e.team.toLowerCase().split(' ').filter(w=>w.length>2&&!['team','gaming','esports'].includes(w))[0]||'~~~'));
+    if (!teamEvs.length) return '';
+    const worst = teamEvs.sort((a,b) => a.impact - b.impact)[0];
+    const icon = EVENT_ICONS[worst.event_type] || '📌';
+    const color = eventImpactColor(worst.impact);
+    return `<span title="${escHtml(worst.summary||worst.event_type)}" style="font-size:12px;cursor:help;background:${color}22;border:1px solid ${color}44;border-radius:4px;padding:1px 5px">${icon}</span>`;
+  }
 
   return `
     <div class="match ${isLive ? 'live' : ''}" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
@@ -1164,12 +1184,16 @@ function matchCardHtml(m, pred) {
         <span class="time">${m.scheduled_at ? fmtTime(m.scheduled_at) : '—'}</span>
       </div>
       <div class="match-vs">
-        <div class="t ${t1Win ? 'win' : ''}">${escHtml(m.team1)}</div>
+        <div class="t ${t1Win ? 'win' : ''}">
+          ${escHtml(m.team1)} ${teamEvBadge(t1name)}
+        </div>
         ${showScore
           ? `<div class="score">${m.score_team1}:${m.score_team2}</div>`
           : '<div class="sep">対</div>'
         }
-        <div class="t right ${t2Win ? 'win' : ''}">${escHtml(m.team2)}</div>
+        <div class="t right ${t2Win ? 'win' : ''}">
+          ${teamEvBadge(t2name)} ${escHtml(m.team2)}
+        </div>
       </div>
       ${m.tournament ? `<div class="tournament">🏆 ${escHtml(m.tournament)}</div>` : ''}
       ${pred ? `
@@ -1626,9 +1650,191 @@ async function openMatch(id, team1, team2, game) {
             </div>`;
           }).join('')}
         </div>` : ''}
+
+      <div id="markets-block" style="margin-top:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span style="font-family:var(--noto);font-size:18px;color:var(--kin);font-weight:900">算</span>
+          <span style="font-size:13px;font-weight:800;color:var(--ink-hi)">Аналитика маркетов</span>
+          <span id="markets-loading" style="font-size:11px;color:var(--ink-low)">загрузка...</span>
+        </div>
+        <div id="markets-content"></div>
+      </div>
     `;
+    // Загружаем маркеты асинхронно (не блокируем основной контент)
+    loadMarkets(id, team1, team2, game);
+
   } catch (e) {
     mc.innerHTML = `<div class="empty"><div class="ek">×</div><div class="et">Ошибка анализа</div><div class="es">${escHtml(e.message)}</div></div>`;
+  }
+}
+
+async function loadMarkets(matchId, team1, team2, game) {
+  try {
+    const data = await api(`/api/markets/${matchId}`);
+    const el = document.getElementById('markets-content');
+    const loader = document.getElementById('markets-loading');
+    if (!el) return;
+    if (loader) loader.remove();
+
+    if (!data.data_available || !data.markets || !data.markets.length) {
+      el.innerHTML = `<div style="font-size:12px;color:var(--ink-low);padding:10px 0">Недостаточно статистики. Данные накапливаются...</div>`;
+      return;
+    }
+
+    const MARKET_LABELS = {
+      total_kills: 'Тотал убийств',
+      team1_kills: `Убийства ${escHtml(team1)}`,
+      team2_kills: `Убийства ${escHtml(team2)}`,
+      kill_handicap: 'Фора убийств',
+      total_rounds: 'Тотал раундов',
+      team1_rounds: `Раунды ${escHtml(team1)}`,
+      team2_rounds: `Раунды ${escHtml(team2)}`,
+      round_handicap: 'Фора раундов',
+      total_towers: 'Тотал башен',
+      total_roshans: 'Тотал рошанов',
+      first_blood: 'Первая кровь',
+      first_tower: 'Первая башня',
+      megacreeps: 'Мегакрипы',
+      duration: 'Продолжительность',
+    };
+
+    let html = '';
+
+    for (const m of data.markets) {
+      const label = MARKET_LABELS[m.market] || m.description || m.market;
+      const games = m.data_games || 0;
+
+      // Duration маркет (по минутам, как у букмекеров)
+      if (m.format === 'duration' && m.lines && m.lines.length) {
+        html += `<div class="card" style="background:var(--bg-base);margin-bottom:10px;padding:12px 14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <span style="font-size:12px;font-weight:700;color:var(--ink-hi)">${label}</span>
+            <span style="font-size:11px;color:var(--ink-low);font-family:var(--mono)">avg ${m.avg_value} мин · ${games} игр</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse">
+            <tr style="font-size:10px;color:var(--ink-low);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">
+              <th style="text-align:left;padding:4px 8px"></th>
+              <th style="padding:4px 12px;text-align:center;width:90px">ДА</th>
+              <th style="padding:4px 12px;text-align:center;width:90px">НЕТ</th>
+            </tr>`;
+        for (const ln of m.lines) {
+          const hiOver = ln.over_prob > 0.6;
+          const hiUnder = ln.under_prob > 0.6;
+          html += `<tr style="border-top:1px solid var(--line-soft)">
+            <td style="padding:8px 8px;font-size:12px;color:var(--ink-mid)">${ln.label || ('Больше ' + ln.line + ' мин')}</td>
+            <td style="padding:8px 12px;text-align:center">
+              <span style="display:inline-block;min-width:52px;padding:4px 10px;border-radius:4px;font-family:var(--mono);font-size:13px;font-weight:800;background:${hiOver?'var(--shu)22':'var(--bg-card)'};color:${hiOver?'var(--shu)':'var(--ink-hi)'};border:1px solid ${hiOver?'var(--shu)44':'var(--line)'}">${ln.over_odds}</span>
+            </td>
+            <td style="padding:8px 12px;text-align:center">
+              <span style="display:inline-block;min-width:52px;padding:4px 10px;border-radius:4px;font-family:var(--mono);font-size:13px;font-weight:800;background:${hiUnder?'var(--ai)22':'var(--bg-card)'};color:${hiUnder?'var(--ai)':'var(--ink-hi)'};border:1px solid ${hiUnder?'var(--ai)44':'var(--line)'}">${ln.under_odds}</span>
+            </td>
+          </tr>`;
+        }
+        html += `</table></div>`;
+
+      // Тотал маркеты с линиями
+      } else if (m.lines && m.lines.length && m.lines[0].line !== undefined) {
+        const avg = m.avg_value != null ? `<span style="font-size:11px;color:var(--ink-low);font-family:var(--mono)">avg ${m.avg_value} · ${games} игр</span>` : '';
+        html += `<div class="card" style="background:var(--bg-base);margin-bottom:10px;padding:12px 14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <span style="font-size:12px;font-weight:700;color:var(--ink-hi)">${label}</span>
+            ${avg}
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">`;
+
+        for (const ln of m.lines) {
+          const overPct = Math.round(ln.over_prob * 100);
+          const underPct = Math.round(ln.under_prob * 100);
+          const bestOver = ln.over_prob > 0.6;
+          const bestUnder = ln.under_prob > 0.6;
+          html += `<div style="flex:1;min-width:90px;background:var(--bg-card);border:1px solid var(--line);border-radius:6px;padding:8px 10px;text-align:center">
+            <div style="font-size:13px;font-weight:800;color:var(--ink-hi);font-family:var(--mono);margin-bottom:6px">${ln.line}</div>
+            <div style="display:flex;gap:4px;justify-content:center">
+              <span style="font-size:11px;padding:2px 7px;border-radius:4px;font-weight:700;background:${bestOver?'var(--shu)22':'var(--bg-base)'};color:${bestOver?'var(--shu)':'var(--ink-mid)'};border:1px solid ${bestOver?'var(--shu)44':'var(--line)'}">Б ${overPct}%</span>
+              <span style="font-size:11px;padding:2px 7px;border-radius:4px;font-weight:700;background:${bestUnder?'var(--ai)22':'var(--bg-base)'};color:${bestUnder?'var(--ai)':'var(--ink-mid)'};border:1px solid ${bestUnder?'var(--ai)44':'var(--line)'}">М ${underPct}%</span>
+            </div>
+          </div>`;
+        }
+        html += `</div>`;
+        if (m.best_pick) {
+          const bp = m.best_pick;
+          const side = bp.side === 'over' ? 'Больше' : 'Меньше';
+          html += `<div style="margin-top:8px;font-size:11px;color:var(--ink-mid)">
+            ⭐ Лучший пик: <b style="color:var(--kin)">${side} ${bp.line}</b> · вероятность ${Math.round(bp.prob*100)}% · коэфф ~${bp.odds}
+          </div>`;
+        }
+        html += `</div>`;
+
+      // Фора маркеты
+      } else if (m.lines && m.lines.length && m.lines[0].handicap !== undefined) {
+        html += `<div class="card" style="background:var(--bg-base);margin-bottom:10px;padding:12px 14px">
+          <div style="font-size:12px;font-weight:700;color:var(--ink-hi);margin-bottom:10px">${label}
+            ${m.avg_diff != null ? `<span style="font-size:11px;color:var(--ink-low);font-family:var(--mono);margin-left:8px">среднее: ${m.avg_diff > 0 ? '+' : ''}${m.avg_diff}</span>` : ''}
+          </div>
+          <table style="width:100%;font-size:11px;border-collapse:collapse">
+            <tr style="color:var(--ink-low)"><th style="text-align:left;padding:3px 6px">Фора</th><th style="padding:3px 6px">${escHtml(team1)}</th><th style="padding:3px 6px">${escHtml(team2)}</th></tr>`;
+        for (const ln of m.lines) {
+          const h = ln.handicap >= 0 ? '+'+ln.handicap : ln.handicap;
+          const p1 = Math.round(ln.team1_prob*100);
+          const p2 = Math.round(ln.team2_prob*100);
+          const hi1 = p1 > 60, hi2 = p2 > 60;
+          html += `<tr style="border-top:1px dashed var(--line-soft)">
+            <td style="padding:5px 6px;font-family:var(--mono);color:var(--ink-mid)">${h}</td>
+            <td style="padding:5px 6px;text-align:center;font-weight:700;color:${hi1?'var(--shu)':'var(--ink)'}">${p1}%</td>
+            <td style="padding:5px 6px;text-align:center;font-weight:700;color:${hi2?'var(--ai)':'var(--ink)'}">${p2}%</td>
+          </tr>`;
+        }
+        html += `</table></div>`;
+
+      // Бинарный маркет (первая кровь, первая башня)
+      } else if (m.team1_prob !== undefined) {
+        const p1 = Math.round(m.team1_prob * 100);
+        const p2 = Math.round(m.team2_prob * 100);
+        const t1Win = m.team1_prob > m.team2_prob;
+        html += `<div class="card" style="background:var(--bg-base);margin-bottom:10px;padding:12px 14px">
+          <div style="font-size:12px;font-weight:700;color:var(--ink-hi);margin-bottom:10px">${label} <span style="font-size:11px;color:var(--ink-low);font-family:var(--mono)">${games} игр</span></div>
+          <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center">
+            <div style="text-align:center;padding:8px;background:${t1Win?'var(--shu)11':'var(--bg-card)'};border-radius:6px;border:1px solid ${t1Win?'var(--shu)44':'var(--line)'}">
+              <div style="font-size:11px;color:var(--ink-low);margin-bottom:3px">${escHtml(team1)}</div>
+              <div style="font-size:18px;font-weight:900;color:${t1Win?'var(--shu)':'var(--ink-hi)'};font-family:var(--mono)">${p1}%</div>
+              <div style="font-size:11px;color:var(--ink-low)">@ ${m.team1_odds||'—'}</div>
+            </div>
+            <div style="font-family:var(--noto);color:var(--ink-low);font-size:13px">対</div>
+            <div style="text-align:center;padding:8px;background:${!t1Win?'var(--ai)11':'var(--bg-card)'};border-radius:6px;border:1px solid ${!t1Win?'var(--ai)44':'var(--line)'}">
+              <div style="font-size:11px;color:var(--ink-low);margin-bottom:3px">${escHtml(team2)}</div>
+              <div style="font-size:18px;font-weight:900;color:${!t1Win?'var(--ai)':'var(--ink-hi)'};font-family:var(--mono)">${p2}%</div>
+              <div style="font-size:11px;color:var(--ink-low)">@ ${m.team2_odds||'—'}</div>
+            </div>
+          </div>
+        </div>`;
+
+      // Мегакрипы (да/нет)
+      } else if (m.yes_prob !== undefined) {
+        const yp = Math.round(m.yes_prob * 100);
+        const np = Math.round(m.no_prob * 100);
+        const yesWin = m.yes_prob > 0.5;
+        html += `<div class="card" style="background:var(--bg-base);margin-bottom:10px;padding:12px 14px">
+          <div style="font-size:12px;font-weight:700;color:var(--ink-hi);margin-bottom:10px">${label} <span style="font-size:11px;color:var(--ink-low);font-family:var(--mono)">${games} игр</span></div>
+          <div style="display:flex;gap:10px">
+            <div style="flex:1;text-align:center;padding:8px;background:${yesWin?'var(--kin)11':'var(--bg-card)'};border-radius:6px;border:1px solid ${yesWin?'var(--kin)44':'var(--line)'}">
+              <div style="font-size:11px;color:var(--ink-low)">Да</div>
+              <div style="font-size:20px;font-weight:900;color:${yesWin?'var(--kin)':'var(--ink-hi)'};font-family:var(--mono)">${yp}%</div>
+              <div style="font-size:11px;color:var(--ink-low)">@ ${m.yes_odds||'—'}</div>
+            </div>
+            <div style="flex:1;text-align:center;padding:8px;background:${!yesWin?'var(--shu)11':'var(--bg-card)'};border-radius:6px;border:1px solid ${!yesWin?'var(--shu)44':'var(--line)'}">
+              <div style="font-size:11px;color:var(--ink-low)">Нет</div>
+              <div style="font-size:20px;font-weight:900;color:${!yesWin?'var(--shu)':'var(--ink-hi)'};font-family:var(--mono)">${np}%</div>
+              <div style="font-size:11px;color:var(--ink-low)">@ ${m.no_odds||'—'}</div>
+            </div>
+          </div>
+        </div>`;
+      }
+    }
+
+    el.innerHTML = html || `<div style="font-size:12px;color:var(--ink-low)">Нет данных по маркетам</div>`;
+  } catch(e) {
+    const el = document.getElementById('markets-content');
+    if (el) el.innerHTML = `<div style="font-size:11px;color:var(--ink-low)">Маркеты недоступны</div>`;
   }
 }
 
@@ -1742,6 +1948,140 @@ document.addEventListener('keydown', e => {
     document.getElementById('global-search').focus();
   }
 });
+
+// ============ NEWS PAGE ============
+const EVENT_ICONS = {
+  injury: '🤕', absence: '🚫', roster_remove: '👋', roster_add: '✅',
+  bootcamp: '🏕', form_peak: '🔥', form_poor: '😞', win_streak: '📈',
+  loss_streak: '📉', disqualified: '⛔', other: '📌',
+};
+const EVENT_LABELS = {
+  injury: 'Травма', absence: 'Отсутствие', roster_remove: 'Уход', roster_add: 'Новый игрок',
+  bootcamp: 'Бутcamп', form_peak: 'Пик формы', form_poor: 'Спад', win_streak: 'Серия побед',
+  loss_streak: 'Серия поражений', disqualified: 'Дисквалификация', other: 'Новость',
+};
+
+function eventImpactColor(impact) {
+  if (impact <= -0.3) return 'var(--bad)';
+  if (impact < 0)    return 'var(--warn)';
+  if (impact >= 0.2) return 'var(--ok)';
+  if (impact > 0)    return 'var(--midori)';
+  return 'var(--ink-low)';
+}
+
+function eventCardHtml(ev) {
+  const icon = EVENT_ICONS[ev.event_type] || '📌';
+  const label = EVENT_LABELS[ev.event_type] || ev.event_type;
+  const color = eventImpactColor(ev.impact);
+  const impStr = (ev.impact > 0 ? '+' : '') + (ev.impact * 100).toFixed(0) + '%';
+  const gameStr = ev.game === 'cs2' ? '⚔ CS2' : ev.game === 'dota2' ? '✦ D2' : '';
+  return `
+    <div class="card" style="border-left:3px solid ${color};padding:14px 16px;cursor:default">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="font-size:22px;flex-shrink:0;margin-top:2px">${icon}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+            ${ev.team ? `<span style="font-weight:800;font-size:13px;color:var(--ink-hi)">${escHtml(ev.team)}</span>` : ''}
+            ${ev.player ? `<span style="font-size:11px;color:var(--ai);background:var(--ai-glow);padding:2px 8px;border-radius:99px">👤 ${escHtml(ev.player)}</span>` : ''}
+            <span style="font-size:11px;color:var(--ink-low);background:var(--bg-base);border:1px solid var(--line);padding:2px 7px;border-radius:6px">${label}</span>
+            ${gameStr ? `<span style="font-size:10px;color:var(--ink-low)">${gameStr}</span>` : ''}
+            <span style="font-family:var(--mono);font-size:12px;font-weight:800;color:${color};margin-left:auto">${impStr}</span>
+          </div>
+          <div style="font-size:13px;color:var(--ink);line-height:1.5">${escHtml(ev.summary || '')}</div>
+          <div style="margin-top:6px;font-size:11px;color:var(--ink-low)">
+            ${ev.channel ? `@${escHtml(ev.channel)} · ` : ''}
+            ${ev.processed_by === 'gemini' ? '🤖 Gemini · ' : '🔑 keywords · '}
+            ${fmtDT(ev.created_at)}
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function msgCardHtml(msg) {
+  const ch = msg.channel ? `@${escHtml(msg.channel)}` : '—';
+  const gameLabel = msg.game === 'cs2' ? '<span style="color:var(--cs2);font-size:10px">CS2</span>' :
+                    msg.game === 'dota2' ? '<span style="color:var(--dota);font-size:10px">D2</span>' : '';
+  return `
+    <div class="card" style="padding:12px 14px;cursor:default">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:700;color:var(--ai)">${ch}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${gameLabel}
+          <span style="font-size:11px;color:var(--ink-low)">${fmtDT(msg.posted_at)}</span>
+        </div>
+      </div>
+      <div style="font-size:13px;color:var(--ink);line-height:1.6;white-space:pre-wrap">${escHtml((msg.text||'').slice(0,300))}${msg.text && msg.text.length > 300 ? '…' : ''}</div>
+      ${msg.teams ? `<div style="margin-top:6px;font-size:11px;color:var(--ink-low)">🏷 ${escHtml(msg.teams)}</div>` : ''}
+    </div>`;
+}
+
+async function renderNews(c) {
+  let gameFilter = 'all';
+  let hoursFilter = 24;
+
+  async function doRender() {
+    const gParam = gameFilter === 'all' ? '' : `&game=${gameFilter}`;
+    const [events, messages] = await Promise.all([
+      api(`/api/news/events?days=7${gParam}&limit=60`).catch(() => []),
+      api(`/api/news/messages?hours=${hoursFilter}${gParam}&limit=60`).catch(() => []),
+    ]);
+
+    const highImpact = events.filter(e => Math.abs(e.impact) >= 0.3);
+    const otherEvents = events.filter(e => Math.abs(e.impact) < 0.3);
+
+    c.innerHTML = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;align-items:center">
+        <span style="font-size:12px;color:var(--ink-low);margin-right:4px">Игра:</span>
+        ${['all','cs2','dota2'].map(g => `
+          <button class="chip-btn${gameFilter===g?' active':''}" onclick="newsSetGame('${g}')">${g==='all'?'Все':g==='cs2'?'⚔ CS2':'✦ Dota2'}</button>
+        `).join('')}
+        <span style="font-size:12px;color:var(--ink-low);margin-left:12px;margin-right:4px">Период:</span>
+        ${[6,24,48].map(h => `
+          <button class="chip-btn${hoursFilter===h?' active':''}" onclick="newsSetHours(${h})">${h}ч</button>
+        `).join('')}
+      </div>
+
+      ${highImpact.length ? `
+        <div class="section-title" style="margin-bottom:12px">
+          <h3>⚠️ Важные события</h3><span class="ks">警</span><span class="accent-line"></span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
+          ${highImpact.map(eventCardHtml).join('')}
+        </div>
+      ` : ''}
+
+      <div class="grid g-2-1" style="gap:20px">
+        <div>
+          <div class="section-title" style="margin-bottom:12px">
+            <h3>📰 Все события</h3><span class="ks">事</span><span class="accent-line"></span>
+          </div>
+          ${otherEvents.length || highImpact.length ? `
+            <div style="display:flex;flex-direction:column;gap:8px">
+              ${otherEvents.map(eventCardHtml).join('')}
+              ${!otherEvents.length && !highImpact.length ? '<div class="empty"><div class="ek">空</div><div class="et">Событий нет</div><div class="es">Подключи TG API и Gemini</div></div>' : ''}
+            </div>
+          ` : '<div class="empty"><div class="ek">空</div><div class="et">Событий нет</div><div class="es">Подключи Telegram API и Gemini Flash в .env</div></div>'}
+        </div>
+
+        <div>
+          <div class="section-title" style="margin-bottom:12px">
+            <h3>💬 Из каналов</h3><span class="ks">話</span><span class="accent-line"></span>
+          </div>
+          ${messages.length ? `
+            <div style="display:flex;flex-direction:column;gap:8px">
+              ${messages.slice(0,20).map(msgCardHtml).join('')}
+            </div>
+          ` : `<div class="empty"><div class="ek">空</div><div class="et">Сообщений нет</div><div class="es">Нужны TG_API_ID + TG_API_HASH в .env</div></div>`}
+        </div>
+      </div>
+    `;
+  }
+
+  window.newsSetGame = (g) => { gameFilter = g; doRender(); };
+  window.newsSetHours = (h) => { hoursFilter = h; doRender(); };
+  await doRender();
+}
 
 // ============ CLOCK ============
 function tick() {

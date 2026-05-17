@@ -29,6 +29,13 @@ async def _job_opendota_history() -> None:
         await run_opendota_history_sync(db)
 
 
+async def _job_opendota_detail_stats() -> None:
+    logger.info("[Scheduler] OpenDota detail stats sync started")
+    from collectors.opendota import run_opendota_detail_stats_sync
+    async with AsyncSessionLocal() as db:
+        await run_opendota_detail_stats_sync(db)
+
+
 async def _job_hltv() -> None:
     logger.info("[Scheduler] HLTV sync started")
     from collectors.hltv import run_hltv_sync
@@ -64,6 +71,22 @@ async def _job_telegram() -> None:
         await run_telegram_sync(db)
 
 
+async def _job_process_news() -> None:
+    """Обработка новых сообщений из TG-каналов через Gemini Flash / keywords."""
+    logger.info("[Scheduler] News processing started")
+    from analyzer.news_processor import process_unprocessed_messages
+    from config import config
+    async with AsyncSessionLocal() as db:
+        created = await process_unprocessed_messages(
+            db,
+            gemini_key=config.GEMINI_API_KEY,
+            gemini_model=config.GEMINI_MODEL,
+            batch_size=40,
+        )
+        if created:
+            logger.info("[Scheduler] News processing done: %d new events", created)
+
+
 async def _job_daily_analysis() -> None:
     """Ежедневный анализ всех матчей и расстановка виртуальных ставок."""
     logger.info("[Scheduler] Daily analysis started")
@@ -72,6 +95,24 @@ async def _job_daily_analysis() -> None:
         results = await analyze_all_today(db)
         new_bets = sum(1 for r in results if r.get("bet_placed"))
         logger.info("[Scheduler] Daily analysis done: %d matches, %d new bets", len(results), new_bets)
+
+
+async def _job_news_digest(bot: Bot) -> None:
+    """Ежедневный дайджест новостей — рассылаем админу (или в канал)."""
+    logger.info("[Scheduler] News digest started")
+    from analyzer.news_analyzer import get_recent_messages, build_digest
+    from config import config
+    async with AsyncSessionLocal() as db:
+        messages = await get_recent_messages(db, hours=24, limit=300)
+        parts = build_digest(messages, hours=24)
+        if not parts or "_Нет_" in parts[0]:
+            return
+        try:
+            for part in parts:
+                await bot.send_message(config.ADMIN_ID, part)
+            logger.info("[Scheduler] News digest sent: %d parts", len(parts))
+        except Exception as e:
+            logger.warning("[Scheduler] News digest send failed: %s", e)
 
 
 async def _job_settle_bets() -> None:
@@ -134,6 +175,16 @@ def create_scheduler(bot: Bot) -> AsyncIOScheduler:
         misfire_grace_time=600,
     )
 
+    # Каждые 24 часа — детальная статистика (kills/towers/roshans) в 04:30 UTC
+    scheduler.add_job(
+        _job_opendota_detail_stats,
+        trigger=CronTrigger(hour=4, minute=30),
+        id="opendota_detail_stats",
+        name="OpenDota detail stats",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
     # Каждые 24 часа — исторические результаты CS2 с HLTV (в 05:00 UTC)
     scheduler.add_job(
         _job_hltv_history,
@@ -163,12 +214,33 @@ def create_scheduler(bot: Bot) -> AsyncIOScheduler:
         misfire_grace_time=30,
     )
 
+    # Каждые 15 минут — обработка новостей (Gemini Flash / keywords)
+    scheduler.add_job(
+        _job_process_news,
+        trigger=IntervalTrigger(minutes=15),
+        id="process_news",
+        name="News processing (Gemini)",
+        replace_existing=True,
+        misfire_grace_time=120,
+    )
+
     # Каждый день в 06:00 UTC (11:00 ЕКБ) — анализ всех матчей дня
     scheduler.add_job(
         _job_daily_analysis,
         trigger=CronTrigger(hour=6, minute=0),
         id="daily_analysis",
         name="Daily match analysis",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # Каждый день в 07:00 UTC (12:00 ЕКБ) — дайджест новостей за сутки
+    scheduler.add_job(
+        _job_news_digest,
+        args=[bot],
+        trigger=CronTrigger(hour=7, minute=0),
+        id="news_digest",
+        name="Daily news digest",
         replace_existing=True,
         misfire_grace_time=600,
     )
