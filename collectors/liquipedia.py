@@ -349,6 +349,124 @@ def _fetch_cs2_tournament_matches() -> list[dict]:
     return all_matches
 
 
+def _parse_bracket_scores(url: str, tournament_name: str, game: str) -> list[dict]:
+    """Парсит bracket-страницу турнира и возвращает матчи с реальными счётами."""
+    import urllib.request
+    import ssl as ssl_module
+    import time
+
+    ctx = ssl_module.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl_module.CERT_NONE
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "esports-bot/1.0", "Accept": "text/html"})
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+            html = r.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        logger.warning("Bracket fetch failed %s: %s", tournament_name, e)
+        return []
+
+    soup = BeautifulSoup(html, "lxml")
+    results = []
+    for match in soup.find_all("div", class_="brkts-match"):
+        full_names = []
+        for a in match.find_all("a", title=True):
+            t = a["title"]
+            if "does not exist" in t or len(t) < 2:
+                continue
+            if t not in full_names:
+                full_names.append(t)
+            if len(full_names) == 2:
+                break
+
+        names_span = [s.get_text(strip=True) for s in match.find_all("span", class_="name") if s.get_text(strip=True)]
+        t1 = full_names[0] if len(full_names) >= 1 else (names_span[0] if names_span else None)
+        t2 = full_names[1] if len(full_names) >= 2 else (names_span[-1] if len(names_span) >= 2 else None)
+        if not t1 or not t2 or t1 == t2:
+            continue
+
+        score_els = match.find_all("div", class_="brkts-opponent-score-inner")
+        scores = [s.get_text(strip=True) for s in score_els]
+        if not scores or not any(s.isdigit() for s in scores):
+            continue
+        s1 = int(scores[0]) if scores and scores[0].isdigit() else None
+        s2 = int(scores[1]) if len(scores) > 1 and scores[1].isdigit() else None
+        # Пропускаем 0:0 — матч ещё не сыгран
+        if s1 == 0 and s2 == 0:
+            continue
+
+        timer = match.find("span", class_="timer-object")
+        dt = None
+        if timer and timer.get("data-timestamp"):
+            dt = datetime.utcfromtimestamp(int(timer["data-timestamp"]))
+
+        if s1 is not None and s2 is not None:
+            results.append({"t1": t1, "t2": t2, "s1": s1, "s2": s2, "dt": dt,
+                            "tournament": tournament_name, "game": game})
+    return results
+
+
+# Турниры для парсинга bracket-счётов
+CS2_BRACKET_TOURNAMENTS = [
+    ("https://liquipedia.net/counterstrike/Intel_Extreme_Masters/2026/Atlanta",      "Intel Extreme Masters/2026/Atlanta",      "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Astana",                         "PGL/2026/Astana",                         "cs2"),
+    ("https://liquipedia.net/counterstrike/NODWIN_Gaming/Clutch_Series/8",           "NODWIN Gaming/Clutch Series/8",           "cs2"),
+    ("https://liquipedia.net/counterstrike/Hero_Esports/Asian_Champions_League/2026","Hero Esports/Asian Champions League/2026","cs2"),
+    ("https://liquipedia.net/counterstrike/CS_Asia_Championships/2026",              "CS Asia Championships/2026",              "cs2"),
+]
+
+
+async def run_bracket_scores_sync(db: AsyncSession) -> None:
+    """Собирает реальные счёты из bracket-страниц турниров и обновляет БД."""
+    from datetime import timedelta
+    from sqlalchemy import select
+    from db.models import Match
+
+    def fetch_all():
+        import time
+        results = []
+        for url, name, game in CS2_BRACKET_TOURNAMENTS:
+            r = _parse_bracket_scores(url, name, game)
+            logger.info("Bracket %s: %d scored matches", name, len(r))
+            results.extend(r)
+            time.sleep(2)
+        return results
+
+    all_matches = await asyncio.get_event_loop().run_in_executor(None, fetch_all)
+    updated = inserted = 0
+
+    for m in all_matches:
+        if m["dt"]:
+            result = await db.execute(
+                select(Match).where(
+                    Match.game == m["game"],
+                    Match.team1_name == m["t1"],
+                    Match.team2_name == m["t2"],
+                    Match.scheduled_at >= m["dt"] - timedelta(hours=2),
+                    Match.scheduled_at <= m["dt"] + timedelta(hours=2),
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                existing.score_team1 = m["s1"]
+                existing.score_team2 = m["s2"]
+                existing.status = "finished"
+                updated += 1
+                continue
+
+        match = Match(
+            source="liquipedia", game=m["game"],
+            team1_name=m["t1"], team2_name=m["t2"],
+            tournament=m["tournament"], scheduled_at=m["dt"],
+            status="finished", score_team1=m["s1"], score_team2=m["s2"],
+        )
+        db.add(match)
+        inserted += 1
+
+    await db.commit()
+    logger.info("Bracket scores sync: updated=%d inserted=%d", updated, inserted)
+
+
 async def run_liquipedia_sync(db: AsyncSession) -> None:
     """Точка входа для планировщика."""
     import ssl
@@ -360,4 +478,5 @@ async def run_liquipedia_sync(db: AsyncSession) -> None:
         collector = LiquipediaCollector(http)
         await collector.save_upcoming_matches(db, "dota2")
         await collector.save_upcoming_matches(db, "cs2")
-        logger.info("Liquipedia sync complete")
+    await run_bracket_scores_sync(db)
+    logger.info("Liquipedia sync complete")

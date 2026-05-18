@@ -171,10 +171,18 @@ async def matches_results(
     game: Optional[str] = None,
     limit: int = Query(40, ge=1, le=100),
 ):
-    """Завершённые матчи."""
+    """Завершённые матчи (только с реальными счётами)."""
     from db.models import Match
+    from sqlalchemy import or_, and_
     async with SessionLocal() as db:
-        q = select(Match).where(Match.status == "finished")
+        q = select(Match).where(
+            Match.status == "finished",
+            # Показываем только матчи где хотя бы одна команда набрала очки
+            or_(
+                Match.score_team1 > 0,
+                Match.score_team2 > 0,
+            ),
+        )
         if game:
             q = q.where(Match.game == game)
         q = q.order_by(desc(Match.scheduled_at)).limit(limit)
