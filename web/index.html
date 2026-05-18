@@ -525,45 +525,130 @@ main { min-width: 0; display: flex; flex-direction: column; }
 .conf-tag.low { color: var(--bad); background: rgba(239,71,111,0.08); border: 1px solid rgba(239,71,111,0.2); }
 
 /* ========= ACCORDION ========= */
-.acc-list { display: flex; flex-direction: column; gap: 8px; }
+.acc-list { display: flex; flex-direction: column; gap: 6px; }
+
 .acc-block {
-  background: var(--bg-card); border: 1px solid var(--line);
-  border-left: 3px solid var(--tc, #444);
-  border-radius: 10px; overflow: hidden;
+  background: linear-gradient(180deg, var(--bg-card), var(--bg-elev));
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+  transition: border-color var(--t), box-shadow var(--t);
 }
+.acc-block:hover { border-color: var(--line-strong); }
+
+/* Цветная полоска сверху по тиру */
+.acc-block::before {
+  content: ''; display: block; height: 2px;
+  background: linear-gradient(90deg, var(--tc, var(--line-strong)), transparent 80%);
+}
+
 .acc-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 16px; cursor: pointer; user-select: none;
-  transition: background 0.15s;
+  padding: 13px 18px 13px 16px;
+  cursor: pointer; user-select: none;
+  gap: 12px;
 }
-.acc-head:hover { background: rgba(255,255,255,0.03); }
-.acc-head-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.acc-head-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.acc-head:hover { background: rgba(255,255,255,0.025); }
+.acc-head-left {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 0; flex: 1;
+}
+.acc-head-right {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
 .acc-tourn {
-  font-size: 13px; font-weight: 600; color: var(--ink-hi);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px;
+  font-size: 13px; font-weight: 700; color: var(--ink-hi);
+  letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.acc-count { font-size: 11px; color: var(--ink-low); font-family: var(--mono); }
-.acc-arrow { font-size: 10px; color: var(--ink-low); width: 14px; text-align: center; transition: transform 0.2s; }
-.acc-body { border-top: 1px solid var(--line); }
+.acc-count {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--ink-low);
+  background: var(--bg-base); border: 1px solid var(--line);
+  padding: 2px 7px; border-radius: 999px;
+}
+.acc-chevron {
+  width: 18px; height: 18px; border-radius: 5px;
+  background: var(--bg-base); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: var(--ink-low);
+  flex-shrink: 0; transition: background var(--t), color var(--t);
+}
+.acc-head:hover .acc-chevron { background: var(--bg-card-hi); color: var(--ink-mid); }
+
+/* Разделитель */
+.acc-body { border-top: 1px solid var(--line-soft); }
+
+/* Строка матча */
 .acc-row {
   display: grid;
-  grid-template-columns: 80px 1fr auto;
-  align-items: center; gap: 12px;
-  padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.04);
-  cursor: pointer; transition: background 0.12s;
+  grid-template-columns: 64px 1fr auto;
+  align-items: center; gap: 0;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
+  transition: background var(--t);
+  position: relative;
 }
 .acc-row:last-child { border-bottom: none; }
-.acc-row:hover { background: rgba(255,255,255,0.03); }
-.acc-row.live { background: rgba(230,57,70,0.05); }
-.acc-time { display: flex; flex-direction: column; gap: 1px; }
-.acc-date { font-size: 10px; color: var(--ink-low); }
-.acc-t { font-size: 12px; font-family: var(--mono); color: var(--ink-mid); font-weight: 600; }
-.acc-teams { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.acc-t1, .acc-t2 { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
-.acc-vs { font-size: 10px; color: var(--ink-low); flex-shrink: 0; }
-.acc-score { font-family: var(--mono); font-weight: 800; font-size: 14px; color: var(--ink-hi); flex-shrink: 0; min-width: 32px; text-align: center; }
-.acc-meta { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.acc-row:hover { background: rgba(255,255,255,0.025); }
+.acc-row.live {
+  background: rgba(230,57,70,0.04);
+}
+.acc-row.live::before {
+  content: ''; position: absolute;
+  left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--shu);
+}
+
+.acc-time {
+  display: flex; flex-direction: column; gap: 2px;
+  padding-right: 16px; border-right: 1px solid var(--line-soft);
+}
+.acc-date { font-size: 10px; color: var(--ink-low); font-weight: 500; }
+.acc-t-time {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: var(--ink-mid);
+}
+
+.acc-teams {
+  display: flex; align-items: center;
+  gap: 0; padding: 0 16px; flex: 1; min-width: 0;
+}
+.acc-t1 {
+  flex: 1; font-size: 14px; font-weight: 700; color: var(--ink-hi);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: right; padding-right: 14px;
+}
+.acc-t2 {
+  flex: 1; font-size: 14px; font-weight: 700; color: var(--ink-hi);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: left; padding-left: 14px;
+}
+.acc-t1.win, .acc-t2.win { color: var(--ok); }
+
+/* Центральный блок: VS или счёт */
+.acc-mid {
+  flex-shrink: 0; width: 64px; text-align: center;
+}
+.acc-vs-txt {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
+  color: var(--ink-faint); text-transform: uppercase;
+}
+.acc-score-txt {
+  font-family: var(--mono); font-weight: 800; font-size: 15px;
+  color: var(--ink-hi);
+  background: var(--bg-base); border: 1px solid var(--line);
+  padding: 2px 8px; border-radius: 6px;
+  letter-spacing: 0.05em;
+}
+
+.acc-meta {
+  display: flex; align-items: center; gap: 6px;
+  flex-shrink: 0; padding-left: 16px;
+  border-left: 1px solid var(--line-soft);
+  min-width: 56px; justify-content: flex-end;
+}
 
 /* ===== TABLE ===== */
 .tbl-wrap { overflow-x: auto; border-radius: var(--r); border: 1px solid var(--line); background: var(--bg-card); }
@@ -1332,13 +1417,16 @@ function tournamentAccordion(matches, openByDefault = true) {
       const dateStr = dt ? dt.toLocaleDateString('ru', {day:'numeric',month:'short'}) : '';
       return `
         <div class="acc-row ${isLive?'live':''}" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
-          <div class="acc-time"><span class="acc-date">${dateStr}</span><span class="acc-t">${isLive?'<span class="dot live" style="display:inline-block;margin-right:3px">●</span>LIVE':timeStr}</span></div>
+          <div class="acc-time">
+            <span class="acc-date">${dateStr}</span>
+            <span class="acc-t-time">${isLive?'<span style="color:var(--shu)">● LIVE</span>':timeStr}</span>
+          </div>
           <div class="acc-teams">
             <span class="acc-t1">${escHtml(m.team1)}</span>
-            <span class="acc-vs">vs</span>
+            <div class="acc-mid"><span class="acc-vs-txt">vs</span></div>
             <span class="acc-t2">${escHtml(m.team2)}</span>
           </div>
-          <div class="acc-meta">${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : ''}</div>
+          <div class="acc-meta">${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : '<span class="acc-date">—</span>'}</div>
         </div>`;
     }).join('');
 
@@ -1350,8 +1438,8 @@ function tournamentAccordion(matches, openByDefault = true) {
             <span class="acc-tourn">${escHtml(tourn)}</span>
           </div>
           <div class="acc-head-right">
-            <span class="acc-count">${grp.matches.length} матч${grp.matches.length===1?'':'ей'}</span>
-            <span class="acc-arrow" id="${id}-arrow">${isOpen?'▲':'▼'}</span>
+            <span class="acc-count">${grp.matches.length}</span>
+            <div class="acc-chevron" id="${id}-arrow">${isOpen?'▲':'▼'}</div>
           </div>
         </div>
         <div class="acc-body" id="${id}" style="display:${isOpen?'block':'none'}">${rows}</div>
@@ -1360,11 +1448,11 @@ function tournamentAccordion(matches, openByDefault = true) {
 }
 window.toggleAcc = (id) => {
   const el = document.getElementById(id);
-  const arr = document.getElementById(id + '-arrow');
+  const chevron = document.getElementById(id + '-arrow');
   if (!el) return;
-  const open = el.style.display !== 'none';
-  el.style.display = open ? 'none' : 'block';
-  if (arr) arr.textContent = open ? '▼' : '▲';
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  if (chevron) chevron.textContent = isOpen ? '▼' : '▲';
 };
 
 // ============ MATCHES (CS2 / Dota2) ============
@@ -1446,12 +1534,19 @@ async function loadResultsBody() {
       const t1W = m.score_team1 != null && m.score_team1 > m.score_team2;
       const t2W = m.score_team1 != null && m.score_team2 > m.score_team1;
       return `
-        <div class="acc-row clickable" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
-          <div class="acc-time"><span class="acc-date">${fmtDate(m.scheduled_at)}</span><span class="acc-t">${fmtTime(m.scheduled_at)}</span></div>
+        <div class="acc-row" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
+          <div class="acc-time">
+            <span class="acc-date">${fmtDate(m.scheduled_at)}</span>
+            <span class="acc-t-time">${fmtTime(m.scheduled_at)}</span>
+          </div>
           <div class="acc-teams">
-            <span class="acc-t1" style="color:${t1W?'var(--ok)':'var(--ink-mid)'};font-weight:${t1W?800:500}">${escHtml(m.team1)}</span>
-            <span class="acc-score">${m.score_team1!=null ? m.score_team1+':'+m.score_team2 : '—'}</span>
-            <span class="acc-t2" style="color:${t2W?'var(--ok)':'var(--ink-mid)'};font-weight:${t2W?800:500}">${escHtml(m.team2)}</span>
+            <span class="acc-t1 ${t1W?'win':''}">${escHtml(m.team1)}</span>
+            <div class="acc-mid">
+              ${m.score_team1!=null
+                ? `<span class="acc-score-txt">${m.score_team1}:${m.score_team2}</span>`
+                : `<span class="acc-vs-txt">—</span>`}
+            </div>
+            <span class="acc-t2 ${t2W?'win':''}">${escHtml(m.team2)}</span>
           </div>
           <div class="acc-meta">
             ${gameTag(m.game)}
@@ -1468,8 +1563,8 @@ async function loadResultsBody() {
             <span class="acc-tourn">${escHtml(tourn)}</span>
           </div>
           <div class="acc-head-right">
-            <span class="acc-count">${grp.matches.length} матч${grp.matches.length===1?'':'ей'}</span>
-            <span class="acc-arrow" id="${id}-arrow">▼</span>
+            <span class="acc-count">${grp.matches.length}</span>
+            <div class="acc-chevron" id="${id}-arrow">▼</div>
           </div>
         </div>
         <div class="acc-body" id="${id}" style="display:none">${rows}</div>
