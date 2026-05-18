@@ -181,23 +181,28 @@ class LiquipediaCollector:
     # --- Сохранение в БД ---
 
     async def save_upcoming_matches(self, db: AsyncSession, game: str) -> int:
+        from datetime import timezone
+        from sqlalchemy import delete
+
         lp_game = "dota2" if game == "dota2" else "counterstrike"
         matches_data = await self.fetch_upcoming_matches(lp_game)
-        count = 0
 
+        # Удаляем все стухшие upcoming от этого источника для данной игры
+        now = datetime.utcnow()
+        await db.execute(
+            delete(Match).where(
+                Match.source == "liquipedia",
+                Match.game == game,
+                Match.status == "upcoming",
+            )
+        )
+
+        count = 0
         for m in matches_data:
             if not m.get("team1") or not m.get("team2"):
                 continue
-
-            result = await db.execute(
-                select(Match).where(
-                    Match.team1_name == m["team1"],
-                    Match.team2_name == m["team2"],
-                    Match.source == "liquipedia",
-                    Match.scheduled_at == m.get("scheduled_at"),
-                )
-            )
-            if result.scalar_one_or_none():
+            # Пропускаем матчи без даты или уже прошедшие
+            if m.get("scheduled_at") and m["scheduled_at"] < now:
                 continue
 
             match = Match(
@@ -220,7 +225,12 @@ class LiquipediaCollector:
 
 async def run_liquipedia_sync(db: AsyncSession) -> None:
     """Точка входа для планировщика."""
-    async with aiohttp.ClientSession() as http:
+    import ssl
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+    connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+    async with aiohttp.ClientSession(connector=connector) as http:
         collector = LiquipediaCollector(http)
         await collector.save_upcoming_matches(db, "dota2")
         await collector.save_upcoming_matches(db, "cs2")

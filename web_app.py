@@ -147,7 +147,7 @@ async def serve_index():
 @app.get("/api/matches/upcoming")
 async def matches_upcoming(
     game: Optional[str] = None,
-    hours: int = Query(48, ge=1, le=168),
+    hours: int = Query(168, ge=1, le=2160),
 ):
     """Предстоящие и live матчи."""
     from db.models import Match
@@ -161,7 +161,7 @@ async def matches_upcoming(
         if game:
             filters.append(Match.game == game)
         result = await db.execute(
-            select(Match).where(and_(*filters)).order_by(Match.scheduled_at).limit(60)
+            select(Match).where(and_(*filters)).order_by(Match.scheduled_at).limit(200)
         )
         return [_match_dict(m) for m in result.scalars().all()]
 

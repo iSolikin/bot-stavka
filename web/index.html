@@ -1012,7 +1012,7 @@ async function renderDashboard(c) {
   const [summary, betStats, upcoming, todayPreds, newsEvs] = await Promise.all([
     api('/api/stats/summary'),
     api('/api/bets/stats'),
-    api('/api/matches/upcoming?hours=48'),
+    api('/api/matches/upcoming?hours=720'),
     api('/api/today').catch(() => []),
     api('/api/news/events?days=3&limit=40').catch(() => []),
   ]);
@@ -1264,7 +1264,7 @@ async function renderToday(c) {
 
 // ============ MATCHES (CS2 / Dota2) ============
 async function renderMatches(c, game) {
-  const data = await api(`/api/matches/upcoming?game=${game}&hours=72`);
+  const data = await api(`/api/matches/upcoming?game=${game}&hours=720`);
   const live = data.filter(m => m.status === 'live');
   const up = data.filter(m => m.status === 'upcoming');
 
