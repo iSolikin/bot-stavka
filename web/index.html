@@ -2138,6 +2138,29 @@ async function loadMarkets(matchId, team1, team2, game) {
 }
 
 // ============ TEAM MODAL ============
+window.toggleMatchTip = (el, idx) => {
+  // Закрываем все другие тултипы
+  document.querySelectorAll('[id^="mtip-"]').forEach(t => {
+    if (t.id !== `mtip-${idx}`) t.style.display = 'none';
+  });
+  const tip = document.getElementById(`mtip-${idx}`);
+  if (!tip) return;
+  const isOpen = tip.style.display !== 'none';
+  tip.style.display = isOpen ? 'none' : 'block';
+  // Закрываем по клику вне
+  if (!isOpen) {
+    setTimeout(() => {
+      const close = (e) => {
+        if (!tip.contains(e.target) && e.target !== el) {
+          tip.style.display = 'none';
+          document.removeEventListener('click', close);
+        }
+      };
+      document.addEventListener('click', close);
+    }, 10);
+  }
+};
+
 async function openTeam(name, game) {
   const ov = document.getElementById('overlay');
   const mc = document.getElementById('modal-content');
@@ -2145,7 +2168,10 @@ async function openTeam(name, game) {
   ov.classList.add('open');
 
   try {
-    const t = await api(`/api/team/${encodeURIComponent(name)}?game=${game}`);
+    const [t, teamMatches] = await Promise.all([
+      api(`/api/team/${encodeURIComponent(name)}?game=${game}`),
+      api(`/api/team/${encodeURIComponent(name)}/matches?game=${game}&limit=15`),
+    ]);
     const total = (t.wins||0) + (t.losses||0);
     const wr = total ? (t.wins/total*100) : 0;
     const wrColor = wr >= 60 ? 'var(--ok)' : wr >= 45 ? 'var(--warn)' : 'var(--bad)';
@@ -2177,11 +2203,43 @@ async function openTeam(name, game) {
         </div>
       </div>
 
-      ${t.form ? `
+      ${t.form && teamMatches.length ? `
+        <div class="card" style="background:var(--bg-base);margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <span style="font-size:13px;font-weight:800;color:var(--ink-hi)">Последняя форма</span>
+            <span style="font-size:11px;color:var(--ink-low)">кликни на W/L для деталей</span>
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${teamMatches.slice(0,10).reverse().map((m,i) => `
+              <div style="position:relative;display:inline-block">
+                <span class="fb ${m.result}" style="cursor:pointer;font-size:13px;padding:4px 8px;border-radius:6px;user-select:none"
+                  onclick="toggleMatchTip(this, ${i})">${m.result}</span>
+                <div id="mtip-${i}" style="display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+                  background:var(--bg-card-hi);border:1px solid var(--line-strong);border-radius:10px;
+                  padding:10px 12px;min-width:220px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.4);white-space:nowrap">
+                  <div style="font-size:10px;color:var(--ink-low);margin-bottom:4px">${m.scheduled_at ? fmtDate(m.scheduled_at) + ' · ' + fmtTime(m.scheduled_at) : ''}</div>
+                  <div style="font-size:13px;font-weight:700;color:${m.result==='W'?'var(--ok)':'var(--bad)'};margin-bottom:4px">
+                    ${m.result==='W'?'✓ Победа':'✗ Поражение'} — <span style="font-family:var(--mono);font-size:15px">${m.score_own}:${m.score_opp}</span>
+                  </div>
+                  <div style="font-size:13px;color:var(--ink-hi);font-weight:600">
+                    vs <span style="color:var(--ai)">${escHtml(m.opponent)}</span>
+                  </div>
+                  <div style="font-size:11px;color:var(--ink-low);margin-top:4px;display:flex;align-items:center;gap:6px">
+                    ${tierBadge(m.tier||3)}
+                    <span style="overflow:hidden;text-overflow:ellipsis;max-width:160px">${escHtml(m.tournament||'—')}</span>
+                    ${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : ''}
+                  </div>
+                  <div style="position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);
+                    width:8px;height:8px;background:var(--bg-card-hi);border-right:1px solid var(--line-strong);
+                    border-bottom:1px solid var(--line-strong);transform:translateX(-50%) rotate(45deg)"></div>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>` : (t.form ? `
         <div class="card" style="background:var(--bg-base);margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">
           <span style="font-size:13px;font-weight:800;color:var(--ink-hi)">Последняя форма</span>
           ${formStreak(t.form)}
-        </div>` : ''}
+        </div>` : '')}
 
       ${t.players && t.players.length ? `
         <div class="card" style="background:var(--bg-base);margin-bottom:14px">

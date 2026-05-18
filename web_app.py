@@ -455,6 +455,44 @@ async def team_detail(team_name: str, game: str = "cs2"):
         }
 
 
+@app.get("/api/team/{team_name}/matches")
+async def team_matches(
+    team_name: str,
+    game: str = "cs2",
+    limit: int = Query(15, ge=1, le=50),
+):
+    """Последние N завершённых матчей команды с деталями результата."""
+    from db.models import Match
+    from sqlalchemy import or_
+    async with SessionLocal() as db:
+        q = select(Match).where(
+            Match.game == game,
+            Match.status == "finished",
+            or_(Match.team1_name == team_name, Match.team2_name == team_name),
+            or_(Match.score_team1 > 0, Match.score_team2 > 0),
+        ).order_by(desc(Match.scheduled_at)).limit(limit)
+        result = await db.execute(q)
+        out = []
+        for m in result.scalars().all():
+            is_t1 = m.team1_name == team_name
+            opponent = m.team2_name if is_t1 else m.team1_name
+            own_score = (m.score_team1 if is_t1 else m.score_team2) or 0
+            opp_score = (m.score_team2 if is_t1 else m.score_team1) or 0
+            won = own_score > opp_score
+            out.append({
+                "id": m.id,
+                "opponent": opponent,
+                "score_own": own_score,
+                "score_opp": opp_score,
+                "result": "W" if won else "L",
+                "tournament": m.tournament,
+                "tier": m.tier if m.tier is not None else 3,
+                "match_format": m.match_format,
+                "scheduled_at": m.scheduled_at.isoformat() if m.scheduled_at else None,
+            })
+        return out
+
+
 # -------- Новостные события --------
 
 @app.get("/api/news/events")
