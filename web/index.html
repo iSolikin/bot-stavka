@@ -926,6 +926,11 @@ function formStreak(form) {
 }
 function confTag(c) { return `<span class="conf-tag ${c}">${c==='high'?'высокая':c==='medium'?'средняя':'низкая'}</span>`; }
 function gameTag(g) { return `<span class="game-tag ${g}">${g==='cs2'?'⚔ CS2':'✦ DOTA 2'}</span>`; }
+function tierBadge(tier) {
+  const colors = {1:'#f4c430',2:'#4cc9f0',3:'#888'};
+  const labels = {1:'T1',2:'T2',3:'T3'};
+  return `<span style="font-size:10px;font-weight:700;padding:2px 5px;border-radius:3px;background:${colors[tier]||'#888'}22;color:${colors[tier]||'#888'};border:1px solid ${colors[tier]||'#888'}44">${labels[tier]||'T?'}</span>`;
+}
 
 // ============ NAVIGATION ============
 function navigate(page) {
@@ -1181,6 +1186,7 @@ function matchCardHtml(m, pred, events) {
     <div class="match ${isLive ? 'live' : ''}" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
       <div class="match-head">
         ${gameTag(m.game)}
+        ${tierBadge(m.tier||3)}
         ${isLive ? '<span class="live-pill">LIVE</span>' : ''}
         ${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : ''}
         <span class="time">${m.scheduled_at ? fmtTime(m.scheduled_at) : '—'}</span>
@@ -1339,7 +1345,7 @@ async function loadResultsBody() {
             return `
             <tr class="clickable" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
               <td><div>${fmtDate(m.scheduled_at)}</div><div class="sub">${fmtTime(m.scheduled_at)}</div></td>
-              <td>${gameTag(m.game)}</td>
+              <td>${gameTag(m.game)} ${tierBadge(m.tier||3)}</td>
               <td>
                 <div>
                   <span style="color:${t1W?'var(--ok)':'var(--ink)'};font-weight:${t1W?'800':'600'}">${escHtml(m.team1)}</span>

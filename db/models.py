@@ -119,6 +119,7 @@ class Match(Base):
     score_team2: Mapped[int | None] = mapped_column(Integer, nullable=True)
     winner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
     match_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tier: Mapped[int] = mapped_column(Integer, default=3)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

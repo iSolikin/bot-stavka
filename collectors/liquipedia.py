@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from db.models import Match, Player, Team
+from collectors.tournament_tiers import get_tier
 
 logger = logging.getLogger(__name__)
 
@@ -226,15 +227,17 @@ class LiquipediaCollector:
             # Прошедшие матчи — finished, будущие — upcoming
             status = "finished" if scheduled and scheduled < now else "upcoming"
 
+            tournament_name = m.get("tournament") or ""
             match = Match(
                 source="liquipedia",
                 game=game,
                 team1_name=m["team1"],
                 team2_name=m["team2"],
-                tournament=m.get("tournament"),
+                tournament=tournament_name or None,
                 match_format=m.get("match_format"),
                 scheduled_at=scheduled,
                 status=status,
+                tier=get_tier(tournament_name, game),
             )
             db.add(match)
             count += 1
@@ -459,6 +462,7 @@ async def run_bracket_scores_sync(db: AsyncSession) -> None:
             team1_name=m["t1"], team2_name=m["t2"],
             tournament=m["tournament"], scheduled_at=m["dt"],
             status="finished", score_team1=m["s1"], score_team2=m["s2"],
+            tier=get_tier(m["tournament"] or "", m["game"]),
         )
         db.add(match)
         inserted += 1

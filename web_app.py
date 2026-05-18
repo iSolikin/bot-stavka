@@ -80,6 +80,7 @@ def _match_dict(m) -> dict:
         "score_team2": m.score_team2,
         "match_url": m.match_url,
         "source": m.source,
+        "tier": m.tier if m.tier is not None else 3,
     }
 
 
@@ -157,11 +158,13 @@ async def matches_upcoming(
             Match.status.in_(["upcoming", "live"]),
             Match.scheduled_at >= now - timedelta(hours=3),
             Match.scheduled_at <= now + timedelta(hours=hours),
+            Match.team1_name != "TBD",
+            Match.team2_name != "TBD",
         ]
         if game:
             filters.append(Match.game == game)
         result = await db.execute(
-            select(Match).where(and_(*filters)).order_by(Match.scheduled_at).limit(200)
+            select(Match).where(and_(*filters)).order_by(Match.tier, Match.scheduled_at).limit(200)
         )
         return [_match_dict(m) for m in result.scalars().all()]
 
