@@ -524,131 +524,134 @@ main { min-width: 0; display: flex; flex-direction: column; }
 .conf-tag.medium { color: var(--warn); background: rgba(244,162,97,0.1); border: 1px solid rgba(244,162,97,0.25); }
 .conf-tag.low { color: var(--bad); background: rgba(239,71,111,0.08); border: 1px solid rgba(239,71,111,0.2); }
 
-/* ========= ACCORDION ========= */
-.acc-list { display: flex; flex-direction: column; gap: 6px; }
+/* ========= ACCORDION — BOOKMAKER STRIP STYLE ========= */
+.acc-list { display: flex; flex-direction: column; gap: 4px; }
 
-.acc-block {
-  background: linear-gradient(180deg, var(--bg-card), var(--bg-elev));
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  overflow: hidden;
-  transition: border-color var(--t), box-shadow var(--t);
-}
-.acc-block:hover { border-color: var(--line-strong); }
+/* Блок турнира */
+.acc-block { border-radius: var(--r-sm); overflow: hidden; }
 
-/* Цветная полоска сверху по тиру */
-.acc-block::before {
-  content: ''; display: block; height: 2px;
-  background: linear-gradient(90deg, var(--tc, var(--line-strong)), transparent 80%);
-}
-
+/* Заголовок турнира */
 .acc-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 13px 18px 13px 16px;
-  cursor: pointer; user-select: none;
-  gap: 12px;
-}
-.acc-head:hover { background: rgba(255,255,255,0.025); }
-.acc-head-left {
   display: flex; align-items: center; gap: 10px;
-  min-width: 0; flex: 1;
-}
-.acc-head-right {
-  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
-}
-.acc-tourn {
-  font-size: 13px; font-weight: 700; color: var(--ink-hi);
-  letter-spacing: -0.01em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.acc-count {
-  font-family: var(--mono); font-size: 11px; font-weight: 600;
-  color: var(--ink-low);
-  background: var(--bg-base); border: 1px solid var(--line);
-  padding: 2px 7px; border-radius: 999px;
-}
-.acc-chevron {
-  width: 18px; height: 18px; border-radius: 5px;
-  background: var(--bg-base); border: 1px solid var(--line);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 9px; color: var(--ink-low);
-  flex-shrink: 0; transition: background var(--t), color var(--t);
-}
-.acc-head:hover .acc-chevron { background: var(--bg-card-hi); color: var(--ink-mid); }
-
-/* Разделитель */
-.acc-body { border-top: 1px solid var(--line-soft); }
-
-/* Строка матча */
-.acc-row {
-  display: grid;
-  grid-template-columns: 64px 1fr auto;
-  align-items: center; gap: 0;
-  padding: 11px 18px;
-  border-bottom: 1px solid var(--line-soft);
-  cursor: pointer;
-  transition: background var(--t);
+  padding: 9px 14px;
+  background: var(--bg-base);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer; user-select: none;
+  transition: background var(--t), border-color var(--t);
   position: relative;
 }
-.acc-row:last-child { border-bottom: none; }
-.acc-row:hover { background: rgba(255,255,255,0.025); }
-.acc-row.live {
-  background: rgba(230,57,70,0.04);
+.acc-head::before {
+  content: ''; position: absolute;
+  left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--tc, var(--line-strong));
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
 }
-.acc-row.live::before {
+.acc-head:hover { background: var(--bg-elev); border-color: var(--line-strong); }
+.acc-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; padding-left: 4px; }
+.acc-head-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.acc-tourn {
+  font-size: 12px; font-weight: 600; color: var(--ink-mid);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+.acc-count {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  color: var(--ink-low); flex-shrink: 0;
+}
+.acc-chevron {
+  font-size: 8px; color: var(--ink-faint); flex-shrink: 0;
+  transition: color var(--t);
+}
+.acc-head:hover .acc-chevron { color: var(--ink-low); }
+
+/* Тело блока — список матчей */
+.acc-body {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 2px 0 0 0;
+}
+
+/* Одна строка матча — БУКМЕКЕР СТИЛЬ */
+.acc-row {
+  display: flex; align-items: center;
+  height: 44px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 14px;
+  gap: 0;
+  cursor: pointer;
+  transition: background var(--t), border-color var(--t);
+  position: relative;
+  overflow: hidden;
+}
+.acc-row:hover { background: var(--bg-card-hi); border-color: var(--line-strong); }
+.acc-row.live { border-color: rgba(230,57,70,0.4); }
+.acc-row.live::after {
   content: ''; position: absolute;
   left: 0; top: 0; bottom: 0; width: 2px;
   background: var(--shu);
 }
 
+/* Время */
 .acc-time {
-  display: flex; flex-direction: column; gap: 2px;
-  padding-right: 16px; border-right: 1px solid var(--line-soft);
+  flex-shrink: 0; width: 48px;
+  display: flex; flex-direction: column; gap: 1px;
 }
-.acc-date { font-size: 10px; color: var(--ink-low); font-weight: 500; }
+.acc-date { font-size: 9px; color: var(--ink-low); font-weight: 500; line-height: 1; }
 .acc-t-time {
-  font-family: var(--mono); font-size: 12px; font-weight: 700;
-  color: var(--ink-mid);
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  color: var(--ink-mid); line-height: 1;
 }
 
+/* Разделитель */
+.acc-sep {
+  width: 1px; height: 22px; background: var(--line);
+  flex-shrink: 0; margin: 0 12px;
+}
+
+/* Команды + счёт */
 .acc-teams {
-  display: flex; align-items: center;
-  gap: 0; padding: 0 16px; flex: 1; min-width: 0;
+  flex: 1; display: flex; align-items: center; min-width: 0; gap: 8px;
 }
 .acc-t1 {
-  flex: 1; font-size: 14px; font-weight: 700; color: var(--ink-hi);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  text-align: right; padding-right: 14px;
+  flex: 1; font-size: 13px; font-weight: 600; color: var(--ink-hi);
+  text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color var(--t);
 }
 .acc-t2 {
-  flex: 1; font-size: 14px; font-weight: 700; color: var(--ink-hi);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  text-align: left; padding-left: 14px;
+  flex: 1; font-size: 13px; font-weight: 600; color: var(--ink-hi);
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color var(--t);
 }
-.acc-t1.win, .acc-t2.win { color: var(--ok); }
+.acc-t1.win { color: var(--ok); font-weight: 800; }
+.acc-t2.win { color: var(--ok); font-weight: 800; }
 
-/* Центральный блок: VS или счёт */
-.acc-mid {
-  flex-shrink: 0; width: 64px; text-align: center;
+.acc-score-box {
+  flex-shrink: 0; min-width: 52px; text-align: center;
+  display: flex; align-items: center; justify-content: center;
 }
-.acc-vs-txt {
-  font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
-  color: var(--ink-faint); text-transform: uppercase;
-}
-.acc-score-txt {
-  font-family: var(--mono); font-weight: 800; font-size: 15px;
+.acc-score-val {
+  font-family: var(--mono); font-size: 13px; font-weight: 800;
   color: var(--ink-hi);
-  background: var(--bg-base); border: 1px solid var(--line);
-  padding: 2px 8px; border-radius: 6px;
-  letter-spacing: 0.05em;
+  background: var(--bg-base); border: 1px solid var(--line-strong);
+  padding: 2px 9px; border-radius: 5px; letter-spacing: 0.04em;
+}
+.acc-vs-val {
+  font-size: 10px; font-weight: 700; color: var(--ink-faint);
+  letter-spacing: 0.1em;
 }
 
-.acc-meta {
-  display: flex; align-items: center; gap: 6px;
-  flex-shrink: 0; padding-left: 16px;
-  border-left: 1px solid var(--line-soft);
-  min-width: 56px; justify-content: flex-end;
+/* Правая часть */
+.acc-row-right {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding-left: 12px;
 }
+.acc-arrow-icon {
+  font-size: 9px; color: var(--ink-faint);
+  transition: color var(--t), transform var(--t);
+}
+.acc-row:hover .acc-arrow-icon { color: var(--ink-low); transform: translateX(2px); }
 
 /* ===== TABLE ===== */
 .tbl-wrap { overflow-x: auto; border-radius: var(--r); border: 1px solid var(--line); background: var(--bg-card); }
@@ -1419,14 +1422,18 @@ function tournamentAccordion(matches, openByDefault = true) {
         <div class="acc-row ${isLive?'live':''}" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
           <div class="acc-time">
             <span class="acc-date">${dateStr}</span>
-            <span class="acc-t-time">${isLive?'<span style="color:var(--shu)">● LIVE</span>':timeStr}</span>
+            <span class="acc-t-time">${isLive?'<span style="color:var(--shu);font-size:10px">●&thinsp;LIVE</span>':timeStr}</span>
           </div>
+          <div class="acc-sep"></div>
           <div class="acc-teams">
             <span class="acc-t1">${escHtml(m.team1)}</span>
-            <div class="acc-mid"><span class="acc-vs-txt">vs</span></div>
+            <div class="acc-score-box"><span class="acc-vs-val">VS</span></div>
             <span class="acc-t2">${escHtml(m.team2)}</span>
           </div>
-          <div class="acc-meta">${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : '<span class="acc-date">—</span>'}</div>
+          <div class="acc-row-right">
+            ${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : ''}
+            <span class="acc-arrow-icon">▶</span>
+          </div>
         </div>`;
     }).join('');
 
@@ -1533,24 +1540,27 @@ async function loadResultsBody() {
     const rows = grp.matches.map(m => {
       const t1W = m.score_team1 != null && m.score_team1 > m.score_team2;
       const t2W = m.score_team1 != null && m.score_team2 > m.score_team1;
+      const hasScore = m.score_team1 != null;
       return `
         <div class="acc-row" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
           <div class="acc-time">
             <span class="acc-date">${fmtDate(m.scheduled_at)}</span>
             <span class="acc-t-time">${fmtTime(m.scheduled_at)}</span>
           </div>
+          <div class="acc-sep"></div>
           <div class="acc-teams">
             <span class="acc-t1 ${t1W?'win':''}">${escHtml(m.team1)}</span>
-            <div class="acc-mid">
-              ${m.score_team1!=null
-                ? `<span class="acc-score-txt">${m.score_team1}:${m.score_team2}</span>`
-                : `<span class="acc-vs-txt">—</span>`}
+            <div class="acc-score-box">
+              ${hasScore
+                ? `<span class="acc-score-val">${m.score_team1}:${m.score_team2}</span>`
+                : `<span class="acc-vs-val">—</span>`}
             </div>
             <span class="acc-t2 ${t2W?'win':''}">${escHtml(m.team2)}</span>
           </div>
-          <div class="acc-meta">
+          <div class="acc-row-right">
             ${gameTag(m.game)}
             ${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : ''}
+            <span class="acc-arrow-icon">▶</span>
           </div>
         </div>`;
     }).join('');
