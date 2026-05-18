@@ -411,11 +411,23 @@ def _parse_bracket_scores(url: str, tournament_name: str, game: str) -> list[dic
 
 # Турниры для парсинга bracket-счётов
 CS2_BRACKET_TOURNAMENTS = [
-    ("https://liquipedia.net/counterstrike/Intel_Extreme_Masters/2026/Atlanta",      "Intel Extreme Masters/2026/Atlanta",      "cs2"),
-    ("https://liquipedia.net/counterstrike/PGL/2026/Astana",                         "PGL/2026/Astana",                         "cs2"),
-    ("https://liquipedia.net/counterstrike/NODWIN_Gaming/Clutch_Series/8",           "NODWIN Gaming/Clutch Series/8",           "cs2"),
-    ("https://liquipedia.net/counterstrike/Hero_Esports/Asian_Champions_League/2026","Hero Esports/Asian Champions League/2026","cs2"),
-    ("https://liquipedia.net/counterstrike/CS_Asia_Championships/2026",              "CS Asia Championships/2026",              "cs2"),
+    # T1 — 2026
+    ("https://liquipedia.net/counterstrike/Intel_Extreme_Masters/2026/Atlanta",       "Intel Extreme Masters/2026/Atlanta",       "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Astana",                          "PGL/2026/Astana",                          "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Bucharest",                       "PGL/2026/Bucharest",                       "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Masters/Europe",                  "PGL/2026/Masters/Europe",                  "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Masters/North_America",           "PGL/2026/Masters/North America",           "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Masters/South_America",           "PGL/2026/Masters/South America",           "cs2"),
+    # T2 — 2026
+    ("https://liquipedia.net/counterstrike/CS_Asia_Championships/2026",               "CS Asia Championships/2026",               "cs2"),
+    ("https://liquipedia.net/counterstrike/Hero_Esports/Asian_Champions_League/2026", "Hero Esports/Asian Champions League/2026", "cs2"),
+    ("https://liquipedia.net/counterstrike/CCT/2026/Europe/Series_1",                 "CCT/2026/Europe/Series 1",                 "cs2"),
+    ("https://liquipedia.net/counterstrike/CCT/2026/Europe/Series_2",                 "CCT/2026/Europe/Series 2",                 "cs2"),
+    ("https://liquipedia.net/counterstrike/CCT/2026/Europe/Series_3",                 "CCT/2026/Europe/Series 3",                 "cs2"),
+    ("https://liquipedia.net/counterstrike/CCT/2026/Europe/Series_4",                 "CCT/2026/Europe/Series 4",                 "cs2"),
+    ("https://liquipedia.net/counterstrike/BLAST/Rivals/2026/Spring",                 "BLAST/Rivals/2026/Spring",                 "cs2"),
+    # T3 — 2026
+    ("https://liquipedia.net/counterstrike/NODWIN_Gaming/Clutch_Series/8",            "NODWIN Gaming/Clutch Series/8",            "cs2"),
 ]
 
 
