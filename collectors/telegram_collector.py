@@ -94,9 +94,13 @@ def _html_to_text(html: str) -> str:
 
 RSS_SOURCES = [
     # (channel_username, url, game_hint)
-    ("vpesports_cs2",   "https://vpesports.com/feed",        "cs2"),
-    ("dotabuff_blog",   "https://www.dotabuff.com/blog.rss", "dota2"),
-    ("cybersport_scrape", None, None),   # HTML scraper, не RSS
+    ("vpesports_cs2",       "https://vpesports.com/feed",                              "cs2"),
+    ("dotabuff_blog",       "https://www.dotabuff.com/blog.rss",                       "dota2"),
+    ("hltv_news",           "https://www.hltv.org/rss/news",                           "cs2"),
+    ("escorenews_cs2",      "https://escore.ru/news/cs2/rss",                          "cs2"),
+    ("escorenews_dota",     "https://escore.ru/news/dota-2/rss",                       "dota2"),
+    ("liquipedia_cs2",      "https://liquipedia.net/counterstrike/api.php?action=featuredfeed&feed=news&feedformat=atom&language=en", "cs2"),
+    ("cybersport_scrape",   None,                                                       None),
 ]
 
 

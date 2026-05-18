@@ -198,7 +198,7 @@ class LiquipediaCollector:
     # --- Сохранение в БД ---
 
     async def save_upcoming_matches(self, db: AsyncSession, game: str) -> int:
-        from datetime import timezone
+        from datetime import timezone, timedelta
         from sqlalchemy import delete
 
         lp_game = "dota2" if game == "dota2" else "counterstrike"
@@ -215,12 +215,16 @@ class LiquipediaCollector:
         )
 
         count = 0
+        cutoff_past = now - timedelta(days=7)  # не берём матчи старше 7 дней
         for m in matches_data:
             if not m.get("team1") or not m.get("team2"):
                 continue
-            # Пропускаем матчи без даты или уже прошедшие
-            if m.get("scheduled_at") and m["scheduled_at"] < now:
+            scheduled = m.get("scheduled_at")
+            # Пропускаем матчи без даты или слишком старые
+            if scheduled and scheduled < cutoff_past:
                 continue
+            # Прошедшие матчи — finished, будущие — upcoming
+            status = "finished" if scheduled and scheduled < now else "upcoming"
 
             match = Match(
                 source="liquipedia",
@@ -229,8 +233,8 @@ class LiquipediaCollector:
                 team2_name=m["team2"],
                 tournament=m.get("tournament"),
                 match_format=m.get("match_format"),
-                scheduled_at=m.get("scheduled_at"),
-                status="upcoming",
+                scheduled_at=scheduled,
+                status=status,
             )
             db.add(match)
             count += 1
