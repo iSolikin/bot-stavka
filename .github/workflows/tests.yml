@@ -1,0 +1,148 @@
+name: 🧪 Tests & Linting
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: 🔍 Code Quality
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort
+
+    - name: Lint with flake8
+      run: |
+        # Stop on errors
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Warnings
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Check code formatting (black)
+      run: black --check .
+
+    - name: Check import sorting (isort)
+      run: isort --check-only .
+
+  test:
+    runs-on: ubuntu-latest
+    name: 🧪 Unit Tests
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt pytest pytest-cov
+
+    - name: Run tests with coverage
+      env:
+        DATABASE_URL: postgresql://test:test@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379
+      run: |
+        pytest --cov=. --cov-report=xml --cov-report=term-missing
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage.xml
+
+  build:
+    runs-on: ubuntu-latest
+    name: 🐳 Docker Build Check
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Check Docker build
+      run: docker-compose build --no-cache
+
+  security:
+    runs-on: ubuntu-latest
+    name: 🔐 Security Check
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit safety
+
+    - name: Bandit security check
+      run: bandit -r . -ll || true
+
+    - name: Safety check (dependencies)
+      run: safety check || true
+
+  results:
+    runs-on: ubuntu-latest
+    name: ✅ Summary
+    needs: [lint, test, build, security]
+    if: always()
+
+    steps:
+    - name: Check results
+      run: |
+        if [ "${{ needs.lint.result }}" != "success" ]; then
+          echo "❌ Linting failed"
+          exit 1
+        fi
+        if [ "${{ needs.test.result }}" != "success" ]; then
+          echo "❌ Tests failed"
+          exit 1
+        fi
+        if [ "${{ needs.build.result }}" != "success" ]; then
+          echo "❌ Docker build failed"
+          exit 1
+        fi
+        echo "✅ All checks passed!"

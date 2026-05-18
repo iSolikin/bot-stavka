@@ -20,6 +20,7 @@ env/
 *.db-journal
 *.db-shm
 *.db-wal
+*.db.backup
 
 # Telegram session files
 *.session
@@ -45,3 +46,18 @@ desktop.ini
 # Temp
 *.tmp
 *.bak
+
+# Archives & backups
+*.rar
+*.zip
+bot_rar_extracted/
+
+# Claude & Kiro internal folders
+.claude/
+.kiro/
+
+# Misc junk
+web_task.xml
+esports-bot-plan.md
+_test_lp.py
+"C:\\Users\\user\\Downloads\\diplom_final*"

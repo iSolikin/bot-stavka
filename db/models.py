@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Float, ForeignKey,
-    Integer, String, Text, UniqueConstraint
+    Integer, String, Text, UniqueConstraint, JSON
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -21,10 +21,31 @@ class Team(Base):
     normalized_name: Mapped[str] = mapped_column(String(128), index=True)
     tag: Mapped[str | None] = mapped_column(String(32), nullable=True)
     logo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    country: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Рейтинги (CS2 специфично)
+    hltv_rating: Mapped[float | None] = mapped_column(Float, nullable=True)  # HLTV рейтинг
+    valve_rating: Mapped[float | None] = mapped_column(Float, nullable=True)  # Valve рейтинг
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)  # Основной рейтинг (усреднённый)
+
+    # История рейтингов (JSON: [{"date": "2026-05-18", "rating": 1.23, "source": "hltv"}, ...])
+    rating_history: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Статистика
     wins: Mapped[int] = mapped_column(Integer, default=0)
     losses: Mapped[int] = mapped_column(Integer, default=0)
+    win_rate_last_10: Mapped[float | None] = mapped_column(Float, nullable=True)  # Винрейт последних 10 матчей
+
+    # Карты
+    best_map: Mapped[str | None] = mapped_column(String(32), nullable=True)  # Лучшая карта
+    worst_map: Mapped[str | None] = mapped_column(String(32), nullable=True)  # Худшая карта
+    map_stats: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # Статистика по картам
+
+    # Недавние матчи (JSON: ["W", "W", "L", "W", ...] - последние 10)
+    recent_form: Mapped[str | None] = mapped_column(String(32), nullable=True)  # "WWLWL" - форма
+
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_stats_update: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # Последнее обновление статистики
 
     players: Mapped[list["Player"]] = relationship("Player", back_populates="team")
 
@@ -33,7 +54,7 @@ class Team(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Team {self.name} [{self.game}]>"
+        return f"<Team {self.name} [{self.game}] HLTV:{self.hltv_rating} Valve:{self.valve_rating}>"
 
 
 class Player(Base):
@@ -47,8 +68,27 @@ class Player(Base):
     real_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     country: Mapped[str | None] = mapped_column(String(64), nullable=True)
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
-    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Рейтинги
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)  # HLTV rating 2.0 (K/D ratio)
+    rating_history: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # История рейтингов
+
+    # Статистика CS2
+    headshot_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)  # HS%
+    avg_adr: Mapped[float | None] = mapped_column(Float, nullable=True)  # Average damage per round
+    first_kill_rate: Mapped[float | None] = mapped_column(Float, nullable=True)  # First kill %
+    clutch_success_rate: Mapped[float | None] = mapped_column(Float, nullable=True)  # 1vX success rate
+
+    # Карты
+    best_map: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    worst_map: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    map_stats: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Позиции/роли (для CS2: rifler, awper, support и т.д.)
+    positions: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_stats_update: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     team: Mapped["Team | None"] = relationship("Team", back_populates="players")
 
@@ -57,7 +97,7 @@ class Player(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Player {self.nickname} [{self.game}]>"
+        return f"<Player {self.nickname} [{self.game}] Rating:{self.rating}>"
 
 
 class Match(Base):

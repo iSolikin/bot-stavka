@@ -91,12 +91,21 @@ def _team_dict(t) -> dict:
         "name": t.name,
         "game": t.game,
         "rating": t.rating,
+        "hltv_rating": getattr(t, 'hltv_rating', None),
+        "valve_rating": getattr(t, 'valve_rating', None),
         "wins": t.wins or 0,
         "losses": t.losses or 0,
         "winrate": wr,
+        "win_rate_last_10": getattr(t, 'win_rate_last_10', None),
+        "best_map": getattr(t, 'best_map', None),
+        "worst_map": getattr(t, 'worst_map', None),
+        "recent_form": getattr(t, 'recent_form', None),
+        "rating_history": (lambda h: h[-10:] if h else None)(getattr(t, 'rating_history', None)),
+        "map_stats": getattr(t, 'map_stats', None),
         "source": t.source,
         "tag": t.tag,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        "last_stats_update": getattr(t, 'last_stats_update', None),
     }
 
 
@@ -385,7 +394,11 @@ async def teams_list(
             q = q.where(Team.game == game)
         if search:
             q = q.where(Team.name.ilike(f"%{search}%"))
-        q = q.order_by(desc(Team.rating)).limit(limit)
+        # Для CS2 сортируем по HLTV рейтингу (если есть), иначе по обычному
+        if game == "cs2":
+            q = q.order_by(desc(Team.hltv_rating).nullslast(), desc(Team.rating)).limit(limit)
+        else:
+            q = q.order_by(desc(Team.rating).nullslast()).limit(limit)
         result = await db.execute(q)
         return [_team_dict(t) for t in result.scalars().all()]
 

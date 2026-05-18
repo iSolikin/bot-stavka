@@ -38,9 +38,17 @@ async def _job_opendota_detail_stats() -> None:
 
 async def _job_hltv() -> None:
     logger.info("[Scheduler] HLTV sync started")
-    from collectors.hltv import run_hltv_sync
+    from collectors.hltv import collect_cs2_data
+    from aggregator.stats_saver import save_cs2_team_ratings, save_cs2_player_ratings
     async with AsyncSessionLocal() as db:
-        await run_hltv_sync(db)
+        data = await collect_cs2_data(db)
+        hltv_rankings = data.get("team_rankings", [])
+        player_ratings = data.get("player_ratings", [])
+
+        # Сохраняем рейтинги команд и игроков
+        t_updated = await save_cs2_team_ratings(db, hltv_rankings)
+        p_updated = await save_cs2_player_ratings(db, player_ratings)
+        logger.info("[Scheduler] HLTV: saved %d teams, %d players", t_updated, p_updated)
 
 
 async def _job_hltv_history() -> None:
@@ -48,6 +56,18 @@ async def _job_hltv_history() -> None:
     from collectors.hltv import run_hltv_history_sync
     async with AsyncSessionLocal() as db:
         await run_hltv_history_sync(db, pages=10)
+
+
+async def _job_cybersport() -> None:
+    logger.info("[Scheduler] Cybersport CS2 rankings sync started")
+    from collectors.cybersport import collect_cs2_stats
+    from aggregator.stats_saver import save_cs2_team_ratings
+    async with AsyncSessionLocal() as db:
+        data = await collect_cs2_stats(db)
+        hltv_rankings = data.get("hltv_rankings", [])
+        valve_rankings = data.get("valve_rankings", [])
+        updated = await save_cs2_team_ratings(db, hltv_rankings, valve_rankings)
+        logger.info("[Scheduler] Cybersport: saved %d team ratings", updated)
 
 
 async def _job_liquipedia() -> None:
@@ -153,6 +173,16 @@ def create_scheduler(bot: Bot) -> AsyncIOScheduler:
         name="HLTV sync",
         replace_existing=True,
         misfire_grace_time=300,
+    )
+
+    # Каждые 5 минут — рейтинги CS2 команд (HLTV + Valve) для live обновлений
+    scheduler.add_job(
+        _job_cybersport,
+        trigger=IntervalTrigger(minutes=5),
+        id="cybersport_rankings",
+        name="Cybersport CS2 rankings",
+        replace_existing=True,
+        misfire_grace_time=120,
     )
 
     # Каждые 6 часов — статистика команд
