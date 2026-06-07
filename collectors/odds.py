@@ -91,9 +91,21 @@ class OddsCollector:
 
 
 async def get_odds_for_game(game: str) -> list[dict]:
-    """Быстрый вызов без создания сессии вручную."""
-    if not config.ODDS_API_KEY:
-        return []
-    async with aiohttp.ClientSession() as http:
-        collector = OddsCollector(http)
-        return await collector.get_odds(game)
+    """Получить кэфы. Приоритет OddsPapi (киберспорт), фолбэк — The Odds API."""
+    # 1) OddsPapi — основной источник для киберспорта
+    if config.ODDSPAPI_API_KEY:
+        try:
+            from collectors.oddspapi import get_odds_for_game as oddspapi_get
+            odds = await oddspapi_get(game)
+            if odds:
+                return odds
+        except Exception as e:
+            logger.warning("OddsPapi failed, fallback to Odds API: %s", e)
+
+    # 2) The Odds API (не покрывает киберспорт, но оставлен как фолбэк)
+    if config.ODDS_API_KEY:
+        async with aiohttp.ClientSession() as http:
+            collector = OddsCollector(http)
+            return await collector.get_odds(game)
+
+    return []

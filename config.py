@@ -37,9 +37,13 @@ class Config:
     OPENDOTA_API_KEY: str = os.getenv("OPENDOTA_API_KEY", "")
     OPENDOTA_BASE_URL: str = "https://api.opendota.com/api"
 
-    # The Odds API (https://the-odds-api.com — бесплатно 500 запросов/месяц)
+    # The Odds API (https://the-odds-api.com) — НЕ покрывает киберспорт, оставлено для совместимости
     ODDS_API_KEY: str = os.getenv("ODDS_API_KEY", "")
     ODDS_API_BASE: str = "https://api.the-odds-api.com/v4"
+
+    # OddsPapi (https://oddspapi.io — бесплатный тариф, кэфы 350+ контор по киберспорту)
+    ODDSPAPI_API_KEY: str = os.getenv("ODDSPAPI_API_KEY", "")
+    ODDSPAPI_BASE: str = "https://api.oddspapi.io/v4"
 
     # Виртуальный банк и value-беттинг
     INITIAL_BANK: float = float(os.getenv("INITIAL_BANK", "10000"))
