@@ -123,6 +123,7 @@ def _bet_dict(b) -> dict:
         "confidence": b.confidence,
         "odds": b.odds,
         "stake": b.stake,
+        "edge": getattr(b, "edge", None),
         "status": b.status,
         "profit": b.profit,
         "actual_score": b.actual_score,

@@ -14,6 +14,46 @@ from analyzer.analyzer import Analyzer
 logger = logging.getLogger(__name__)
 
 
+async def analyze_live_matches(db: AsyncSession) -> list[dict]:
+    """Анализ текущих live-матчей: прогноз + value-ставка через place_auto_bet.
+
+    Запускается часто (вместе с live-синком). Ставит только матчи без ставки.
+    """
+    result = await db.execute(
+        select(Match).where(Match.status == "live").order_by(Match.tier)
+    )
+    matches = result.scalars().all()
+    if not matches:
+        return []
+
+    existing = await db.execute(
+        select(VirtualBet.match_id).where(VirtualBet.status == "pending")
+    )
+    already = {row[0] for row in existing.fetchall() if row[0]}
+
+    analyzer = Analyzer(db)
+    out = []
+    for m in matches:
+        if not m.team1_name or not m.team2_name:
+            continue
+        if m.id in already:
+            continue
+        try:
+            pred, report = await analyzer.quick_predict(
+                team1=m.team1_name, team2=m.team2_name, game=m.game,
+                match_id=m.id, scheduled_at=m.scheduled_at, tournament=m.tournament,
+            )
+            out.append({
+                "match_id": m.id, "team1": m.team1_name, "team2": m.team2_name,
+                "game": m.game, "tournament": m.tournament, "pred": pred,
+            })
+        except Exception as ex:
+            logger.warning("live analysis error %s vs %s: %s", m.team1_name, m.team2_name, ex)
+    if out:
+        logger.info("live analysis: processed %d live matches", len(out))
+    return out
+
+
 async def analyze_all_today(db: AsyncSession) -> list[dict]:
     """Пробежать по всем матчам на ближайшие 36 часов, сделать предикты, поставить ставки.
 

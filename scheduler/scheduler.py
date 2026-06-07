@@ -24,8 +24,14 @@ async def _job_opendota() -> None:
 
 async def _job_opendota_live() -> None:
     from collectors.opendota import run_opendota_live_sync
+    from analyzer.daily_analysis import analyze_live_matches
     async with AsyncSessionLocal() as db:
         await run_opendota_live_sync(db)
+        # Сразу анализируем live-матчи и ставим value-ставки (если есть перевес)
+        try:
+            await analyze_live_matches(db)
+        except Exception as e:
+            logger.warning("[Scheduler] live analysis failed: %s", e)
 
 
 async def _job_opendota_history() -> None:

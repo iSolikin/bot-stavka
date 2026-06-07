@@ -333,6 +333,7 @@ class VirtualBet(Base):
     confidence: Mapped[str] = mapped_column(String(16))     # низкая / средняя / высокая
     odds: Mapped[float] = mapped_column(Float)              # коэффициент (бук или 1/prob)
     stake: Mapped[float] = mapped_column(Float, default=100.0)  # сумма ставки
+    edge: Mapped[float | None] = mapped_column(Float, nullable=True)  # перевес value (our_prob - market_prob), None=flat
 
     # Результат
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/won/lost/void

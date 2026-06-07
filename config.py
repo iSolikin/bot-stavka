@@ -41,6 +41,14 @@ class Config:
     ODDS_API_KEY: str = os.getenv("ODDS_API_KEY", "")
     ODDS_API_BASE: str = "https://api.the-odds-api.com/v4"
 
+    # Виртуальный банк и value-беттинг
+    INITIAL_BANK: float = float(os.getenv("INITIAL_BANK", "10000"))
+    KELLY_FRACTION: float = float(os.getenv("KELLY_FRACTION", "0.25"))   # дробный Келли (1/4)
+    MIN_EDGE: float = float(os.getenv("MIN_EDGE", "0.03"))               # мин. перевес 3%
+    MAX_STAKE_PCT: float = float(os.getenv("MAX_STAKE_PCT", "0.05"))     # макс 5% банка на ставку
+    MIN_STAKE: float = float(os.getenv("MIN_STAKE", "10"))
+    FLAT_STAKE: float = float(os.getenv("FLAT_STAKE", "100"))            # фолбэк когда кэфов нет
+
     # FACEIT API (https://developers.faceit.com — бесплатно)
     FACEIT_API_KEY: str = os.getenv("FACEIT_API_KEY", "")
 

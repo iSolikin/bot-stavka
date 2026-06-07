@@ -15,8 +15,9 @@ from db.models import Match, VirtualBet
 
 logger = logging.getLogger(__name__)
 
-# Фиксированная ставка в виртуальных единицах
-STAKE = 100.0
+# Фиксированная ставка-фолбэк (когда нет реальных кэфов для value-расчёта)
+from config import config as _cfg
+STAKE = _cfg.FLAT_STAKE
 
 
 async def place_auto_bet(
@@ -61,19 +62,37 @@ async def place_auto_bet(
         bet_team = team1
         prob = pred.team1_prob
         bk_odds = bookmaker_odds1
+        opp_odds = bookmaker_odds2
     else:
         bet_on = "team2"
         bet_team = team2
         prob = pred.team2_prob
         bk_odds = bookmaker_odds2
+        opp_odds = bookmaker_odds1
 
-    # Коэффициент: приоритет букмекеру, иначе считаем из вероятности
-    if bk_odds and bk_odds >= 1.05:
+    from bets.value_betting import evaluate_bet, current_bankroll
+
+    have_real_odds = bool(bk_odds and bk_odds >= 1.05)
+
+    if have_real_odds:
+        # VALUE-РЕЖИМ: ставим только при перевесе, размер по Келли
         odds = round(bk_odds, 2)
+        bankroll = await current_bankroll(db)
+        verdict = evaluate_bet(prob, odds, bankroll, opp_odds=opp_odds)
+        if verdict is None:
+            logger.info(
+                "VirtualBet: no value %s vs %s (our %.0f%% vs odds %.2f) — skip",
+                team1, team2, prob * 100, odds,
+            )
+            return None
+        stake = verdict["stake"]
+        edge = verdict["edge"]
     else:
-        # Из вероятности, с небольшой маржой (как реальный букмекер)
+        # FALLBACK: реальных кэфов нет → флэт-ставка по уверенности предиктора
         odds = round(1.0 / max(prob, 0.05), 2)
-        odds = max(1.05, min(odds, 15.0))  # ограничиваем диапазон
+        odds = max(1.05, min(odds, 15.0))
+        stake = STAKE
+        edge = None
 
     bet = VirtualBet(
         match_id=match_id,
@@ -87,14 +106,17 @@ async def place_auto_bet(
         pred_prob=round(prob, 3),
         confidence=pred.confidence,
         odds=odds,
-        stake=STAKE,
+        stake=round(stake, 2),
+        edge=edge,
         status="pending",
     )
     db.add(bet)
     await db.commit()
     logger.info(
-        "VirtualBet placed: %s vs %s → %s @ %.2f [%s]",
-        team1, team2, bet_team, odds, pred.confidence,
+        "VirtualBet placed: %s vs %s → %s @ %.2f stake=%.0f%s [%s]",
+        team1, team2, bet_team, odds, stake,
+        f" edge={edge*100:.1f}%" if edge is not None else " (flat)",
+        pred.confidence,
     )
     return bet
 
