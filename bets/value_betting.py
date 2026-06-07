@@ -78,6 +78,10 @@ def evaluate_bet(
     edge = our_prob - market_prob
     if edge < config.MIN_EDGE:
         return None
+    # Защита от ошибки модели: перевес >MAX_EDGE против шарп-конторы почти всегда
+    # означает что ошибается НАША модель (мало данных), а не рынок. Не ставим.
+    if edge > config.MAX_EDGE:
+        return None
 
     kf = kelly_fraction(our_prob, odds) * config.KELLY_FRACTION
     if kf <= 0:

@@ -133,7 +133,18 @@ class Analyzer:
             team2_events=t2_events,
         )
 
-        # Авто-ставка
+        # Кэфы букмекера (для value-ставки)
+        o1, o2 = None, None
+        try:
+            from collectors.odds import get_odds_for_game, OddsCollector
+            odds_list = await get_odds_for_game(game)
+            if odds_list:
+                oc = OddsCollector(None)
+                o1, o2 = oc.find_odds(team1, team2, odds_list)
+        except Exception:
+            pass
+
+        # Авто-ставка (value+Kelly если есть кэфы, иначе флэт)
         try:
             from bets.virtual_bets import place_auto_bet
             await place_auto_bet(
@@ -145,6 +156,8 @@ class Analyzer:
                 tournament=tournament or report.tournament,
                 scheduled_at=scheduled_at or report.scheduled_at,
                 pred=pred,
+                bookmaker_odds1=o1,
+                bookmaker_odds2=o2,
             )
         except Exception as _e:
             logger.warning("Auto-bet failed for %s vs %s: %s", team1, team2, _e)

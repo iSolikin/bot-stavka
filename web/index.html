@@ -999,6 +999,9 @@ html.light *::-webkit-scrollbar-thumb:hover { background: #aab0cc; }
       <button class="nav-btn" data-page="bets" data-label="Ставки" onclick="navigate('bets')">
         <span class="ic">💰</span><span class="txt">Ставки</span>
       </button>
+      <button class="nav-btn" data-page="value" data-label="Value-ставки" onclick="navigate('value')">
+        <span class="ic">💎</span><span class="txt">Value</span>
+      </button>
       <button class="nav-btn" data-page="teams" data-label="Команды" onclick="navigate('teams')">
         <span class="ic">👥</span><span class="txt">Команды</span>
       </button>
@@ -1062,6 +1065,7 @@ const PAGES = {
   dota2:     { title: 'Dota 2',      sub: 'предстоящие матчи',   kanji: '剣' },
   results:   { title: 'Результаты',  sub: 'завершённые матчи',   kanji: '結' },
   bets:      { title: 'Ставки',      sub: 'виртуальный банк',    kanji: '賭' },
+  value:     { title: 'Value-ставки', sub: 'ставки с перевесом', kanji: '価' },
   teams:     { title: 'Команды',     sub: 'рейтинги и состав',   kanji: '隊' },
   news:      { title: 'Новости',     sub: 'события и трансферы', kanji: '報' },
 };
@@ -1152,6 +1156,7 @@ async function loadPage(page) {
       case 'dota2':     await renderMatches(c, 'dota2'); break;
       case 'results':   await renderResults(c); break;
       case 'bets':      await renderBets(c); break;
+      case 'value':     await renderValueBets(c); break;
       case 'teams':     await renderTeams(c); break;
       case 'news':      await renderNews(c); break;
     }
@@ -1757,6 +1762,77 @@ function renderBetsList(list) {
         </tbody>
       </table>
     </div>`;
+}
+
+// ============ VALUE BETS ============
+async function renderValueBets(c) {
+  const data = await api('/api/bets/value?limit=150');
+  const s = data.summary || {};
+  const bets = data.bets || [];
+  const roi = s.roi || 0;
+  const wr = s.winrate || 0;
+  const profit = s.profit || 0;
+
+  c.innerHTML = `
+    <div class="section-head">
+      <div class="left">
+        <h2>💎 Value-ставки</h2>
+        <p>Только ставки с математическим перевесом над букмекером (edge ≥ 3%) · размер по Келли</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:22px;border-left:3px solid var(--ai)">
+      <div style="font-size:13px;color:var(--ink-mid);line-height:1.6">
+        <b style="color:var(--ink-hi)">Как это работает:</b> берём кэф шарп-конторы (Pinnacle), убираем маржу →
+        получаем честную вероятность рынка. Ставим <b style="color:var(--ai)">только когда наша оценка выше</b>,
+        а размер ставки считаем по дробному критерию Келли (¼ банка, максимум 5%).
+        Это и есть +EV игра в долгую.
+      </div>
+    </div>
+
+    <div class="grid g-cards" style="margin-bottom:24px">
+      ${statCardHtml({label:'ROI value-ставок', kanji:'利', accent: roi>=0?'var(--ok)':'var(--bad)', value:(roi>=0?'+':'')+roi.toFixed(1)+'%', sub:`${s.total||0} value-ставок`, valueColor: roi>=0?'var(--ok)':'var(--bad)'})}
+      ${statCardHtml({label:'Винрейт', kanji:'勝', accent: wr>=55?'var(--ok)':wr>=45?'var(--warn)':'var(--bad)', value:wr.toFixed(1)+'%', sub:`${s.won||0}W / ${s.lost||0}L`, valueColor: wr>=55?'var(--ok)':wr>=45?'var(--warn)':'var(--bad)'})}
+      ${statCardHtml({label:'Средний перевес', kanji:'価', accent:'var(--ai)', value:'+'+(s.avg_edge||0).toFixed(1)+'%', sub:'edge над рынком', valueColor:'var(--ai)'})}
+      ${statCardHtml({label:'P&L', kanji:'円', accent: profit>=0?'var(--ok)':'var(--bad)', value:(profit>=0?'+':'')+profit.toFixed(0), sub:`${s.pending||0} в ожидании`, valueColor: profit>=0?'var(--ok)':'var(--bad)'})}
+    </div>
+
+    <div class="section-title"><h3>Найденные value-ставки</h3><span class="accent-line"></span></div>
+    ${!bets.length ? `
+      <div class="empty">
+        <div class="ek">💎</div>
+        <div class="et">Пока нет value-ставок</div>
+        <div class="es">Бот ставит только при реальном перевесе над кэфами Pinnacle. Как появится матч с edge ≥ 3% — он окажется здесь.</div>
+      </div>` : `
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>Дата</th><th>Матч</th><th>Ставка на</th><th>Наша %</th><th>Кэф</th><th>Edge</th><th>Размер</th><th>Статус</th><th>P&L</th>
+          </tr></thead>
+          <tbody>
+            ${bets.map(b => {
+              const edgePct = (b.edge!=null) ? (b.edge*100) : 0;
+              const probPct = (b.pred_prob!=null) ? (b.pred_prob*100) : 0;
+              return `
+              <tr>
+                <td>${fmtDate(b.created_at)}</td>
+                <td>
+                  <div style="font-weight:700">${escHtml(b.team1)} <span class="muted">vs</span> ${escHtml(b.team2)}</div>
+                  <div class="sub">${gameTag(b.game)}</div>
+                </td>
+                <td><span style="color:var(--ai);font-weight:700">${escHtml(b.bet_team)}</span></td>
+                <td><span style="font-family:var(--mono)">${probPct.toFixed(0)}%</span></td>
+                <td><span style="font-family:var(--mono);font-weight:700">${b.odds.toFixed(2)}</span></td>
+                <td><span style="font-family:var(--mono);font-weight:800;color:var(--ok)">+${edgePct.toFixed(1)}%</span></td>
+                <td><span style="font-family:var(--mono);font-weight:700">${b.stake!=null?b.stake.toFixed(0):'—'}</span></td>
+                <td><span class="bet-status ${b.status}">${b.status==='won'?'✓ won':b.status==='lost'?'✕ lost':b.status==='pending'?'◷ wait':'void'}</span></td>
+                <td><span style="font-family:var(--mono);font-weight:800;color:${b.profit>0?'var(--ok)':b.profit<0?'var(--bad)':'var(--ink-low)'}">${b.profit!=null?(b.profit>=0?'+':'')+b.profit.toFixed(0):'—'}</span></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`}
+  `;
 }
 
 // ============ TEAMS ============

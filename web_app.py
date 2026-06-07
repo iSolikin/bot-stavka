@@ -391,6 +391,45 @@ async def bets_list(
         return [_bet_dict(b) for b in result.scalars().all()]
 
 
+@app.get("/api/bets/value")
+async def bets_value(
+    game: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=300),
+):
+    """Только value-ставки (с реальным перевесом edge), + сводка по ним."""
+    from db.models import VirtualBet
+    async with SessionLocal() as db:
+        q = select(VirtualBet).where(VirtualBet.edge.isnot(None))
+        if game:
+            q = q.where(VirtualBet.game == game)
+        result = await db.execute(q.order_by(desc(VirtualBet.created_at)).limit(limit))
+        bets = result.scalars().all()
+
+        settled = [b for b in bets if b.status in ("won", "lost")]
+        won = [b for b in settled if b.status == "won"]
+        staked = sum(b.stake for b in settled)
+        profit = sum(b.profit for b in settled if b.profit is not None)
+        avg_edge = (sum(b.edge for b in bets) / len(bets)) if bets else 0.0
+
+        summary = {
+            "total": len(bets),
+            "pending": sum(1 for b in bets if b.status == "pending"),
+            "won": len(won),
+            "lost": len(settled) - len(won),
+            "staked": round(staked, 2),
+            "profit": round(profit, 2),
+            "roi": round(profit / staked * 100, 2) if staked > 0 else 0.0,
+            "winrate": round(len(won) / len(settled) * 100, 1) if settled else 0.0,
+            "avg_edge": round(avg_edge * 100, 2),
+        }
+        # сортируем выдачу: pending по убыванию edge сверху, потом сведённые
+        bets_sorted = sorted(
+            bets,
+            key=lambda b: (b.status != "pending", -(b.edge or 0)),
+        )
+        return {"summary": summary, "bets": [_bet_dict(b) for b in bets_sorted]}
+
+
 # -------- Команды --------
 
 @app.get("/api/teams")
