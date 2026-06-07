@@ -13,6 +13,7 @@ from sqlalchemy import select, delete
 from config import config
 from db.models import Match, Player, Team, MatchDetailStats
 from aggregator.aggregator import normalize_team_name
+from collectors.tournament_tiers import get_tier
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,7 @@ class OpenDotaCollector:
                 team1_name=team1,
                 team2_name=team2,
                 tournament=m.get("league_name"),
+                tier=get_tier(m.get("league_name") or "", "dota2"),
                 scheduled_at=scheduled_at,
                 status="finished",
                 score_team1=1 if m.get("radiant_win") else 0,
@@ -241,6 +243,7 @@ class OpenDotaCollector:
                 team1_name=team1,
                 team2_name=team2,
                 tournament=(m.get("league") or {}).get("name"),
+                tier=get_tier((m.get("league") or {}).get("name") or "", "dota2"),
                 scheduled_at=datetime.utcnow(),
                 status="live",
             )
@@ -321,6 +324,7 @@ class OpenDotaCollector:
                     team1_name=team.name,
                     team2_name=opposing,
                     tournament=m.get("league_name"),
+                    tier=get_tier(m.get("league_name") or "", "dota2"),
                     scheduled_at=scheduled_at,
                     status="finished",
                     score_team1=1 if is_win else 0,

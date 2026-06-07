@@ -41,24 +41,30 @@ _CS2_TIER2 = [
 # Dota2
 _DOTA2_TIER1 = [
     "the international",
-    "dreamleague season",   # DL Season X (основной турнир, не дивизион)
+    "dreamleague",          # DL Season/Group Stage — основной турнир (Division 2/квалы упадут через downgrade)
     "esl one",
     "pgl wallachia",
+    "pgl",                  # PGL мейджоры/серии
     "bali major",
     "riyadh masters",
     "lima major",
     "berlin major",
+    "major",                # любой Major
+    "esports world cup",
     "gaimin gladiators",    # крупные инвайт-турниры
 ]
 _DOTA2_TIER2 = [
-    "dreamleague",          # DL Division 2, квалификаторы — сюда после tier1 check
     "immortal cup",
     "betboom streamers",
+    "betboom dacha",
     "dpc",
     "divine knockout",
     "cringe station",
     "lunar horse",
     "destiny league",
+    "epl",                  # EPL World Series — региональные
+    "european pro league",
+    "champions league",
 ]
 
 
