@@ -3,6 +3,7 @@
 Бесплатный тариф: 500 запросов в месяц.
 """
 import logging
+import time
 import aiohttp
 from config import config
 
@@ -12,6 +13,11 @@ SPORT_MAP = {
     "cs2": "esports_cs2",
     "dota2": "esports_dota2",
 }
+
+# Кэш кэфов по игре, чтобы не дёргать API на каждый матч.
+# {game: (timestamp, [odds...])}; TTL 10 минут.
+_ODDS_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_ODDS_TTL = 600.0
 
 
 class OddsCollector:
@@ -91,21 +97,28 @@ class OddsCollector:
 
 
 async def get_odds_for_game(game: str) -> list[dict]:
-    """Получить кэфы. Приоритет OddsPapi (киберспорт), фолбэк — The Odds API."""
+    """Получить кэфы. Приоритет OddsPapi (киберспорт), фолбэк — The Odds API.
+    Результат кэшируется на 10 минут (чтобы не дёргать API на каждый матч)."""
+    # Кэш
+    cached = _ODDS_CACHE.get(game)
+    if cached and (time.time() - cached[0]) < _ODDS_TTL:
+        return cached[1]
+
+    odds: list[dict] = []
+
     # 1) OddsPapi — основной источник для киберспорта
     if config.ODDSPAPI_API_KEY:
         try:
             from collectors.oddspapi import get_odds_for_game as oddspapi_get
             odds = await oddspapi_get(game)
-            if odds:
-                return odds
         except Exception as e:
             logger.warning("OddsPapi failed, fallback to Odds API: %s", e)
 
     # 2) The Odds API (не покрывает киберспорт, но оставлен как фолбэк)
-    if config.ODDS_API_KEY:
+    if not odds and config.ODDS_API_KEY:
         async with aiohttp.ClientSession() as http:
             collector = OddsCollector(http)
-            return await collector.get_odds(game)
+            odds = await collector.get_odds(game)
 
-    return []
+    _ODDS_CACHE[game] = (time.time(), odds)
+    return odds

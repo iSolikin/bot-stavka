@@ -2,17 +2,25 @@
 Коллектор кэфов с OddsPapi (https://oddspapi.io).
 Бесплатный тариф: кэфы по киберспорту от 350+ контор (вкл. Pinnacle).
 
-Возвращает тот же формат что и collectors/odds.py:
-    [{team1, team2, odds1, odds2, bookmaker}]
+Структура API (v4):
+  GET /fixtures?sportId=16&from=YYYY-MM-DD&to=YYYY-MM-DD
+      -> [{fixtureId, participant1Name, participant2Name, hasOdds, startTime, ...}]
+      (from/to обязательны, диапазон < 10 дней)
+  GET /odds?fixtureId=ID
+      -> {bookmakerOdds: {<book>: {markets: {"<marketId>": {outcomes:
+            {"<outcomeId>": {players: {"0": {price, active, ...}}}}}}}}}
 
-ВАЖНО: точная структура ответа уточняется по факту первого реального ответа
-(см. probe_oddspapi()). Парсинг написан защитно — пробует несколько вариантов
-имён полей.
+Рынок «победитель матча» (moneyline, 2 исхода):
+  Dota2: marketId 161  (исход 161=команда1, 162=команда2)
+  CS2:   marketId 171  (исход 171=команда1, 172=команда2)
+
+Возвращает стандартный формат: [{team1, team2, odds1, odds2, bookmaker}]
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 
 import aiohttp
 
@@ -20,29 +28,27 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
-# sportId в OddsPapi
-SPORT_IDS = {
-    "dota2": 16,
-    "cs2": 17,
-}
+SPORT_IDS = {"dota2": 16, "cs2": 17}
+
+# marketId рынка «Winner» (moneyline) по игре; исход команды1 = marketId, команды2 = marketId+1
+WINNER_MARKET = {"dota2": 161, "cs2": 171}
 
 # Предпочитаемые конторы (Pinnacle = шарп, эталон честной цены)
-PREFERRED_BOOKMAKERS = ["pinnacle", "bet365", "1xbet", "betano", "ggbet"]
+PREFERRED_BOOKMAKERS = ["pinnacle", "bet365", "betano", "marathonbet", "1xbet", "bwin", "ggbet"]
+
+# Ограничения: пауза между запросами (рейт-лимит ~2с) и макс. матчей за синк
+_REQUEST_DELAY = 2.2
+_MAX_FIXTURES = 30
 
 
-def _f(d: dict, *names):
-    """Достать первое непустое поле из возможных вариантов имени."""
-    for n in names:
-        if n in d and d[n] not in (None, "", 0):
-            return d[n]
-    return None
-
-
-async def _get(http: aiohttp.ClientSession, path: str, params: dict) -> object:
+async def _get(http: aiohttp.ClientSession, path: str, params: dict) -> object | None:
     url = f"{config.ODDSPAPI_BASE}{path}"
     p = {"apiKey": config.ODDSPAPI_API_KEY, **params}
     try:
         async with http.get(url, params=p, timeout=aiohttp.ClientTimeout(total=15)) as r:
+            if r.status == 429:
+                await asyncio.sleep(_REQUEST_DELAY)
+                return None
             if r.status != 200:
                 logger.warning("OddsPapi %s -> HTTP %s", path, r.status)
                 return None
@@ -52,82 +58,89 @@ async def _get(http: aiohttp.ClientSession, path: str, params: dict) -> object:
         return None
 
 
-def _pick_h2h_odds(odds_payload: object) -> tuple[float | None, float | None, str]:
-    """Из ответа /odds вытащить пару кэфов H2H (1X2 без ничьей) от лучшей конторы."""
-    # Ожидаем список котировок по конторам и рынкам. Структура уточняется probe-ом.
-    if not isinstance(odds_payload, (list, dict)):
+def _extract_winner_odds(payload: dict, game: str) -> tuple[float | None, float | None, str]:
+    """Вытащить пару кэфов на победителя матча от лучшей доступной конторы."""
+    if not isinstance(payload, dict):
+        return None, None, ""
+    books = payload.get("bookmakerOdds")
+    if not isinstance(books, dict):
         return None, None, ""
 
-    rows = odds_payload if isinstance(odds_payload, list) else odds_payload.get("data") or odds_payload.get("odds") or []
-    if not isinstance(rows, list):
-        return None, None, ""
+    market_id = str(WINNER_MARKET[game])
+    out1_id = str(WINNER_MARKET[game])          # исход команды 1
+    out2_id = str(WINNER_MARKET[game] + 1)      # исход команды 2
 
-    # Сгруппируем по конторе: ищем рынок "match winner" / "h2h" / "moneyline"
-    by_book: dict[str, tuple[float, float]] = {}
-    for row in rows:
-        if not isinstance(row, dict):
+    def price(book_data: dict, outcome_id: str) -> float | None:
+        try:
+            market = book_data["markets"][market_id]
+            if market.get("marketActive") is False or book_data.get("suspended"):
+                return None
+            players = market["outcomes"][outcome_id]["players"]
+            cell = players.get("0") or next(iter(players.values()))
+            if cell.get("active") is False:
+                return None
+            return float(cell["price"])
+        except (KeyError, TypeError, ValueError, StopIteration):
+            return None
+
+    found: dict[str, tuple[float, float]] = {}
+    for book, bdata in books.items():
+        if not isinstance(bdata, dict):
             continue
-        market = str(_f(row, "market", "market_name", "marketType", "key") or "").lower()
-        if market and not any(k in market for k in ("h2h", "moneyline", "match", "winner", "1x2", "ml")):
-            continue
-        book = str(_f(row, "bookmaker", "bookmaker_name", "book", "bookie") or "").lower()
-        o1 = _f(row, "odds1", "home", "price1", "team1_odds", "outcome1")
-        o2 = _f(row, "odds2", "away", "price2", "team2_odds", "outcome2")
-        if book and o1 and o2:
-            try:
-                by_book[book] = (float(o1), float(o2))
-            except (TypeError, ValueError):
-                continue
+        o1 = price(bdata, out1_id)
+        o2 = price(bdata, out2_id)
+        if o1 and o2 and o1 > 1.0 and o2 > 1.0:
+            found[book.lower()] = (o1, o2)
 
-    if not by_book:
+    if not found:
         return None, None, ""
-
     for pref in PREFERRED_BOOKMAKERS:
-        if pref in by_book:
-            o1, o2 = by_book[pref]
-            return o1, o2, pref
-    # иначе любая контора
-    book, (o1, o2) = next(iter(by_book.items()))
+        if pref in found:
+            return found[pref][0], found[pref][1], pref
+    book, (o1, o2) = next(iter(found.items()))
     return o1, o2, book
 
 
 async def get_odds(http: aiohttp.ClientSession, game: str) -> list[dict]:
-    """Список матчей с кэфами H2H для игры."""
+    """Список матчей с кэфами H2H на победителя для игры."""
     if not config.ODDSPAPI_API_KEY:
         return []
     sport_id = SPORT_IDS.get(game)
-    if not sport_id:
+    if not sport_id or game not in WINNER_MARKET:
         return []
 
-    fixtures = await _get(http, "/fixtures", {"sportId": sport_id, "hasOdds": "true"})
-    rows = fixtures if isinstance(fixtures, list) else (fixtures or {}).get("data") or []
-    if not isinstance(rows, list):
+    today = datetime.utcnow().date()
+    params = {
+        "sportId": sport_id,
+        "from": today.isoformat(),
+        "to": (today + timedelta(days=9)).isoformat(),
+    }
+    fixtures = await _get(http, "/fixtures", params)
+    if not isinstance(fixtures, list):
         return []
+
+    with_odds = [f for f in fixtures if isinstance(f, dict) and f.get("hasOdds")][:_MAX_FIXTURES]
 
     results = []
-    for fx in rows:
-        if not isinstance(fx, dict):
-            continue
-        team1 = _f(fx, "team1", "home", "home_team", "homeTeam", "team_home", "participant1")
-        team2 = _f(fx, "team2", "away", "away_team", "awayTeam", "team_away", "participant2")
-        fixture_id = _f(fx, "id", "fixtureId", "fixture_id", "matchId", "match_id")
-        if not team1 or not team2:
+    for fx in with_odds:
+        team1 = fx.get("participant1Name")
+        team2 = fx.get("participant2Name")
+        fid = fx.get("fixtureId")
+        if not team1 or not team2 or not fid:
             continue
 
-        # Кэфы могут быть встроены в fixture, либо тянутся отдельным запросом
-        o1, o2, book = _pick_h2h_odds(fx.get("odds") or fx.get("markets") or [])
-        if (not o1 or not o2) and fixture_id:
-            await asyncio.sleep(0.3)
-            odds_payload = await _get(http, "/odds", {"fixtureId": fixture_id})
-            o1, o2, book = _pick_h2h_odds(odds_payload)
-
+        await asyncio.sleep(_REQUEST_DELAY)
+        payload = await _get(http, "/odds", {"fixtureId": fid})
+        if not isinstance(payload, dict):
+            continue
+        o1, o2, book = _extract_winner_odds(payload, game)
         if o1 and o2:
             results.append({
                 "team1": str(team1), "team2": str(team2),
                 "odds1": o1, "odds2": o2, "bookmaker": book or "oddspapi",
             })
 
-    logger.info("OddsPapi %s: %d matches with odds", game, len(results))
+    logger.info("OddsPapi %s: %d matches with winner odds", game, len(results))
     return results
 
 
@@ -139,33 +152,11 @@ async def get_odds_for_game(game: str) -> list[dict]:
         return await get_odds(http, game)
 
 
-# ---- Отладка: посмотреть реальную структуру ответа ----
-async def probe_oddspapi() -> None:
-    """Распечатать сырые ответы /sports, /fixtures, /odds для калибровки парсинга."""
-    import json
-    async with aiohttp.ClientSession() as http:
-        sports = await _get(http, "/sports", {})
-        print("=== /sports (esports?) ===")
-        if isinstance(sports, list):
-            for s in sports:
-                blob = json.dumps(s, ensure_ascii=False).lower()
-                if any(k in blob for k in ("dota", "cs2", "csgo", "counter", "esport", "league")):
-                    print(" ", s)
-        else:
-            print(" ", str(sports)[:300])
-
-        fx = await _get(http, "/fixtures", {"sportId": 16, "hasOdds": "true"})
-        rows = fx if isinstance(fx, list) else (fx or {}).get("data") or []
-        print(f"\n=== /fixtures dota2: {len(rows) if isinstance(rows,list) else '?'} ===")
-        if isinstance(rows, list) and rows:
-            print("Пример fixture (ключи):", list(rows[0].keys()))
-            print(json.dumps(rows[0], ensure_ascii=False)[:600])
-            fid = _f(rows[0], "id", "fixtureId", "fixture_id", "matchId", "match_id")
-            if fid:
-                odds = await _get(http, "/odds", {"fixtureId": fid})
-                print(f"\n=== /odds fixture {fid} ===")
-                print(json.dumps(odds, ensure_ascii=False)[:800])
-
-
 if __name__ == "__main__":
-    asyncio.run(probe_oddspapi())
+    async def _demo():
+        for g in ("dota2", "cs2"):
+            odds = await get_odds_for_game(g)
+            print(f"\n=== {g}: {len(odds)} матчей с кэфами ===")
+            for o in odds[:8]:
+                print(f"  {o['team1']} ({o['odds1']}) vs {o['team2']} ({o['odds2']}) | {o['bookmaker']}")
+    asyncio.run(_demo())
