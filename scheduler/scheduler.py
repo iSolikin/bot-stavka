@@ -22,6 +22,12 @@ async def _job_opendota() -> None:
         await run_opendota_sync(db)
 
 
+async def _job_opendota_live() -> None:
+    from collectors.opendota import run_opendota_live_sync
+    async with AsyncSessionLocal() as db:
+        await run_opendota_live_sync(db)
+
+
 async def _job_opendota_history() -> None:
     logger.info("[Scheduler] OpenDota history sync started")
     from collectors.opendota import run_opendota_history_sync
@@ -164,6 +170,16 @@ def create_scheduler(bot: Bot) -> AsyncIOScheduler:
         name="OpenDota sync",
         replace_existing=True,
         misfire_grace_time=300,
+    )
+
+    # Каждые 90 секунд — live-матчи Dota2 (лёгкий запрос, кэш лиг)
+    scheduler.add_job(
+        _job_opendota_live,
+        trigger=IntervalTrigger(seconds=90),
+        id="opendota_live",
+        name="OpenDota live sync",
+        replace_existing=True,
+        misfire_grace_time=60,
     )
 
     scheduler.add_job(

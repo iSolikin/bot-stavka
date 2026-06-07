@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 BASE_URL = config.OPENDOTA_BASE_URL
 HEADERS = {"User-Agent": "esports-bot/1.0"}
 
+# Кэш карты лиг {league_id: name} — обновляется не чаще раза в 6 часов
+_LEAGUES_CACHE: dict[int, str] = {}
+_LEAGUES_CACHE_TS: datetime | None = None
+
 
 class OpenDotaCollector:
     def __init__(self, session: aiohttp.ClientSession):
@@ -65,15 +69,22 @@ class OpenDotaCollector:
         return data if isinstance(data, list) else []
 
     async def fetch_leagues(self) -> dict[int, str]:
-        """Получить карту {league_id: name} для подстановки названий турниров в live-матчи."""
+        """Получить карту {league_id: name}. Кэшируется на 6 часов (список лиг почти статичен)."""
+        global _LEAGUES_CACHE, _LEAGUES_CACHE_TS
+        now = datetime.utcnow()
+        if _LEAGUES_CACHE and _LEAGUES_CACHE_TS and (now - _LEAGUES_CACHE_TS) < timedelta(hours=6):
+            return _LEAGUES_CACHE
+
         data = await self._get("/leagues")
         if not isinstance(data, list):
-            return {}
-        return {
+            return _LEAGUES_CACHE or {}
+        _LEAGUES_CACHE = {
             int(lg["leagueid"]): lg.get("name") or ""
             for lg in data
             if lg.get("leagueid") is not None
         }
+        _LEAGUES_CACHE_TS = now
+        return _LEAGUES_CACHE
 
     async def fetch_team_players(self, team_id: int) -> list[dict]:
         """Получить игроков команды."""
@@ -253,15 +264,23 @@ class OpenDotaCollector:
             if not league_id:
                 continue
 
-            result = await db.execute(
-                select(Match).where(Match.external_id == match_id, Match.source == "opendota")
-            )
-            if result.scalar_one_or_none():
-                continue
-
             league_name = leagues.get(int(league_id)) or ""
             r_score = m.get("radiant_score")
             d_score = m.get("dire_score")
+
+            result = await db.execute(
+                select(Match).where(Match.external_id == match_id, Match.source == "opendota")
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                # Обновляем live-счёт (кол-во убийств меняется по ходу игры)
+                if existing.status == "live":
+                    if isinstance(r_score, int):
+                        existing.score_team1 = r_score
+                    if isinstance(d_score, int):
+                        existing.score_team2 = d_score
+                    existing.scheduled_at = datetime.utcnow()  # обновляем «свежесть» для cleanup
+                continue
 
             match = Match(
                 external_id=match_id,
@@ -571,6 +590,15 @@ async def run_opendota_sync(db: AsyncSession) -> None:
         await collector.save_pro_matches(db)
         await collector.save_live_matches(db)
         logger.info("OpenDota sync complete")
+
+
+async def run_opendota_live_sync(db: AsyncSession) -> None:
+    """Лёгкая точка входа: только live-матчи (для частого обновления)."""
+    async with aiohttp.ClientSession() as http:
+        collector = OpenDotaCollector(http)
+        n = await collector.save_live_matches(db)
+        if n:
+            logger.info("OpenDota live sync: %d new live matches", n)
 
 
 async def run_opendota_history_sync(db: AsyncSession) -> None:
