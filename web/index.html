@@ -155,7 +155,7 @@ body {
 .nav-btn.active {
   color: var(--ink-hi); background: var(--bg-card);
   border-color: var(--line-strong);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 0 12px rgba(230,57,70,0.2);
 }
 .nav-btn.active::before {
   content: ""; position: absolute; left: -13px; top: 18%; bottom: 18%; width: 3px;
@@ -294,6 +294,9 @@ main { min-width: 0; display: flex; flex-direction: column; }
 .section-head .left h2 {
   font-size: 22px; font-weight: 800; color: var(--ink-hi); letter-spacing: -0.01em;
   display: flex; align-items: center; gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid;
+  border-image: linear-gradient(90deg, var(--shu), transparent) 1;
 }
 .section-head .left h2 .sk {
   font-family: var(--noto); font-weight: 600; color: var(--ink-low); font-size: 18px;
@@ -524,6 +527,135 @@ main { min-width: 0; display: flex; flex-direction: column; }
 .conf-tag.medium { color: var(--warn); background: rgba(244,162,97,0.1); border: 1px solid rgba(244,162,97,0.25); }
 .conf-tag.low { color: var(--bad); background: rgba(239,71,111,0.08); border: 1px solid rgba(239,71,111,0.2); }
 
+/* ========= ACCORDION — BOOKMAKER STRIP STYLE ========= */
+.acc-list { display: flex; flex-direction: column; gap: 4px; }
+
+/* Блок турнира */
+.acc-block { border-radius: var(--r-sm); overflow: hidden; }
+
+/* Заголовок турнира */
+.acc-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px;
+  background: var(--bg-base);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer; user-select: none;
+  transition: background var(--t), border-color var(--t);
+  position: relative;
+}
+.acc-head::before {
+  content: ''; position: absolute;
+  left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--tc, var(--line-strong));
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+}
+.acc-head:hover { background: var(--bg-elev); border-color: var(--line-strong); }
+.acc-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; padding-left: 4px; }
+.acc-head-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.acc-tourn {
+  font-size: 12px; font-weight: 600; color: var(--ink-mid);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+.acc-count {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  color: var(--ink-low); flex-shrink: 0;
+}
+.acc-chevron {
+  font-size: 8px; color: var(--ink-faint); flex-shrink: 0;
+  transition: color var(--t);
+}
+.acc-head:hover .acc-chevron { color: var(--ink-low); }
+
+/* Тело блока — список матчей */
+.acc-body {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 2px 0 0 0;
+}
+
+/* Одна строка матча — БУКМЕКЕР СТИЛЬ */
+.acc-row {
+  display: flex; align-items: center;
+  height: 44px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 14px;
+  gap: 0;
+  cursor: pointer;
+  transition: background var(--t), border-color var(--t);
+  position: relative;
+  overflow: hidden;
+}
+.acc-row:hover { background: var(--bg-card-hi); border-color: var(--line-strong); box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
+.acc-row.live { border-color: rgba(230,57,70,0.4); }
+.acc-row.live::after {
+  content: ''; position: absolute;
+  left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--shu);
+}
+
+/* Время */
+.acc-time {
+  flex-shrink: 0; width: 48px;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.acc-date { font-size: 9px; color: var(--ink-low); font-weight: 500; line-height: 1; }
+.acc-t-time {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  color: var(--ink-mid); line-height: 1;
+}
+
+/* Разделитель */
+.acc-sep {
+  width: 1px; height: 22px; background: var(--line);
+  flex-shrink: 0; margin: 0 12px;
+}
+
+/* Команды + счёт */
+.acc-teams {
+  flex: 1; display: flex; align-items: center; min-width: 0; gap: 8px;
+}
+.acc-t1 {
+  flex: 1; font-size: 13px; font-weight: 600; color: var(--ink-hi);
+  text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color var(--t);
+}
+.acc-t2 {
+  flex: 1; font-size: 13px; font-weight: 600; color: var(--ink-hi);
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color var(--t);
+}
+.acc-t1.win { color: var(--ok); font-weight: 800; }
+.acc-t2.win { color: var(--ok); font-weight: 800; }
+
+.acc-score-box {
+  flex-shrink: 0; min-width: 52px; text-align: center;
+  display: flex; align-items: center; justify-content: center;
+}
+.acc-score-val {
+  font-family: var(--mono); font-size: 13px; font-weight: 800;
+  color: var(--ink-hi);
+  background: var(--bg-base); border: 1px solid var(--line-strong);
+  padding: 2px 9px; border-radius: 5px; letter-spacing: 0.04em;
+}
+.acc-vs-val {
+  font-size: 10px; font-weight: 700; color: var(--ink-faint);
+  letter-spacing: 0.1em;
+}
+
+/* Правая часть */
+.acc-row-right {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding-left: 12px;
+}
+.acc-arrow-icon {
+  font-size: 9px; color: var(--ink-faint);
+  transition: color var(--t), transform var(--t);
+}
+.acc-row:hover .acc-arrow-icon { color: var(--ink-low); transform: translateX(2px); }
+
 /* ===== TABLE ===== */
 .tbl-wrap { overflow-x: auto; border-radius: var(--r); border: 1px solid var(--line); background: var(--bg-card); }
 .tbl { width: 100%; border-collapse: collapse; }
@@ -673,6 +805,7 @@ main { min-width: 0; display: flex; flex-direction: column; }
 .team-card {
   background: linear-gradient(180deg, var(--bg-card), var(--bg-elev));
   border: 1px solid var(--line);
+  border-left: 3px solid var(--tier-color, var(--line-strong));
   border-radius: var(--r);
   padding: 18px;
   cursor: pointer;
@@ -754,6 +887,63 @@ main { min-width: 0; display: flex; flex-direction: column; }
   font-family: var(--noto); font-weight: 700; color: var(--ink-low); font-size: 14px;
 }
 
+/* ===== LIGHT THEME ===== */
+html.light {
+  --bg-void: #f0f2f8;
+  --bg-deep: #e8eaf2;
+  --bg-base: #ffffff;
+  --bg-elev: #f5f6fb;
+  --bg-card: #ffffff;
+  --bg-card-hi: #f0f2f8;
+  --bg-input: rgba(255,255,255,0.8);
+  --line: #dde0ec;
+  --line-soft: #e8eaef;
+  --line-strong: #c8ccde;
+  --ink-hi: #080b1a;
+  --ink: #1a1e32;
+  --ink-mid: #4a5070;
+  --ink-low: #8890b0;
+  --ink-faint: #c0c6d8;
+  --shu-soft: rgba(230,57,70,0.06);
+  --shu-glow: rgba(230,57,70,0.12);
+  --midori-soft: rgba(6,214,160,0.1);
+  --shadow-soft: 0 1px 0 rgba(0,0,0,0.04), 0 2px 12px rgba(0,0,0,0.08);
+  --shadow-pop: 0 4px 24px rgba(0,0,0,0.12), 0 0 0 1px var(--line);
+}
+html.light body { background: var(--bg-void); }
+html.light .topbar { background: rgba(240,242,248,0.85); }
+html.light .sidebar { background: linear-gradient(180deg, var(--bg-deep), var(--bg-void)); }
+html.light *::-webkit-scrollbar-thumb { background: #c8ccde; }
+html.light *::-webkit-scrollbar-thumb:hover { background: #aab0cc; }
+
+/* ===== THEME TOGGLE BUTTON ===== */
+.theme-toggle {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: var(--bg-elev); border: 1px solid var(--line);
+  color: var(--ink-mid); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1;
+  transition: all var(--t);
+}
+.theme-toggle:hover { background: var(--bg-card); border-color: var(--line-strong); color: var(--ink-hi); }
+
+/* ===== ENTRANCE ANIMATIONS ===== */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.35s cubic-bezier(0.4,0,0.2,1) both; }
+
+/* ===== TITLE GRADIENT LINE ===== */
+.title-accent-line {
+  display: block;
+  height: 2px;
+  margin-top: 6px;
+  background: linear-gradient(90deg, var(--shu), transparent);
+  border: none;
+  border-radius: 1px;
+}
+
 /* mobile */
 @media (max-width: 768px) {
   .app { grid-template-columns: 1fr; }
@@ -818,6 +1008,7 @@ main { min-width: 0; display: flex; flex-direction: column; }
       </button>
     </nav>
     <div class="sidebar-foot">
+      <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Переключить тему">🌙</button>
       <div class="status-led" title="Сервер онлайн"></div>
       <div class="time-mini" id="clock">—</div>
     </div>
@@ -926,6 +1117,11 @@ function formStreak(form) {
 }
 function confTag(c) { return `<span class="conf-tag ${c}">${c==='high'?'высокая':c==='medium'?'средняя':'низкая'}</span>`; }
 function gameTag(g) { return `<span class="game-tag ${g}">${g==='cs2'?'⚔ CS2':'✦ DOTA 2'}</span>`; }
+function tierBadge(tier) {
+  const colors = {1:'#f4c430',2:'#4cc9f0',3:'#888'};
+  const labels = {1:'T1',2:'T2',3:'T3'};
+  return `<span style="font-size:10px;font-weight:700;padding:2px 5px;border-radius:3px;background:${colors[tier]||'#888'}22;color:${colors[tier]||'#888'};border:1px solid ${colors[tier]||'#888'}44">${labels[tier]||'T?'}</span>`;
+}
 
 // ============ NAVIGATION ============
 function navigate(page) {
@@ -961,6 +1157,15 @@ async function loadPage(page) {
     }
     c.classList.add('fade-in');
     setTimeout(() => c.classList.remove('fade-in'), 400);
+    // Apply entrance animations to newly rendered elements
+    c.querySelectorAll('.section-head, .hero, .stat').forEach((el, i) => {
+      el.style.setProperty('--i', i);
+      el.classList.add('fade-up');
+    });
+    c.querySelectorAll('.acc-block').forEach((el, i) => {
+      el.style.animationDelay = (i * 0.04) + 's';
+      el.classList.add('fade-up');
+    });
     await refreshBadges();
   } catch (e) {
     c.innerHTML = `<div class="empty"><div class="ek">×</div><div class="et">Ошибка загрузки</div><div class="es">${escHtml(e.message)}</div></div>`;
@@ -1012,7 +1217,7 @@ async function renderDashboard(c) {
   const [summary, betStats, upcoming, todayPreds, newsEvs] = await Promise.all([
     api('/api/stats/summary'),
     api('/api/bets/stats'),
-    api('/api/matches/upcoming?hours=48'),
+    api('/api/matches/upcoming?hours=720'),
     api('/api/today').catch(() => []),
     api('/api/news/events?days=3&limit=40').catch(() => []),
   ]);
@@ -1055,7 +1260,6 @@ async function renderDashboard(c) {
       <div>
         <div class="section-title">
           <h3>Ближайшие матчи</h3>
-          <span class="ks">試合</span>
           <span class="accent-line"></span>
           <button class="chip-btn" onclick="navigate('today')">Все →</button>
         </div>
@@ -1070,7 +1274,6 @@ async function renderDashboard(c) {
       <div>
         <div class="section-title">
           <h3>Последние ставки</h3>
-          <span class="ks">賭け</span>
           <span class="accent-line"></span>
           <button class="chip-btn" onclick="navigate('bets')">Все →</button>
         </div>
@@ -1181,6 +1384,7 @@ function matchCardHtml(m, pred, events) {
     <div class="match ${isLive ? 'live' : ''}" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
       <div class="match-head">
         ${gameTag(m.game)}
+        ${tierBadge(m.tier||3)}
         ${isLive ? '<span class="live-pill">LIVE</span>' : ''}
         ${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : ''}
         <span class="time">${m.scheduled_at ? fmtTime(m.scheduled_at) : '—'}</span>
@@ -1242,7 +1446,6 @@ async function renderToday(c) {
       <div style="margin-bottom:28px">
         <div class="section-title">
           <h3 style="color:${gameColor(game)}">${label}</h3>
-          <span class="ks">${kanji}</span>
           <span class="accent-line"></span>
           <span class="chip"><span class="dot" style="background:${gameColor(game)};box-shadow:0 0 6px ${gameColor(game)}"></span>${items.length} матчей</span>
         </div>
@@ -1253,7 +1456,7 @@ async function renderToday(c) {
   c.innerHTML = `
     <div class="section-head">
       <div class="left">
-        <h2>Сегодня <span class="sk">本日の予想</span></h2>
+        <h2>Сегодня</h2>
         <p>${data.length} матчей · нажми карточку для детального анализа</p>
       </div>
     </div>
@@ -1262,17 +1465,82 @@ async function renderToday(c) {
   `;
 }
 
+// ============ ACCORDION BY TOURNAMENT ============
+function tournamentAccordion(matches, openByDefault = true) {
+  // Группируем по турниру
+  const groups = {};
+  for (const m of matches) {
+    const key = m.tournament || 'Неизвестный турнир';
+    if (!groups[key]) groups[key] = { matches: [], tier: m.tier || 3, game: m.game };
+    groups[key].matches.push(m);
+  }
+  // Сортируем: сначала по тиру, потом по алфавиту
+  const sorted = Object.entries(groups).sort(([ka, a], [kb, b]) => a.tier - b.tier || ka.localeCompare(kb));
+
+  return sorted.map(([tourn, grp], idx) => {
+    const id = 'acc-' + Math.random().toString(36).slice(2);
+    const isOpen = openByDefault || idx < 3;
+    const tierColor = {1:'var(--gold,#f4c430)',2:'var(--ai,#4cc9f0)',3:'#888'}[grp.tier] || '#888';
+    const rows = grp.matches.map(m => {
+      const isLive = m.status === 'live';
+      const dt = m.scheduled_at ? new Date(m.scheduled_at) : null;
+      const timeStr = dt ? dt.toLocaleTimeString('ru', {hour:'2-digit',minute:'2-digit'}) : '—';
+      const dateStr = dt ? dt.toLocaleDateString('ru', {day:'numeric',month:'short'}) : '';
+      return `
+        <div class="acc-row ${isLive?'live':''}" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
+          <div class="acc-time">
+            <span class="acc-date">${dateStr}</span>
+            <span class="acc-t-time">${isLive?'<span style="color:var(--shu);font-size:10px">●&thinsp;LIVE</span>':timeStr}</span>
+          </div>
+          <div class="acc-sep"></div>
+          <div class="acc-teams">
+            <span class="acc-t1">${escHtml(m.team1)}</span>
+            <div class="acc-score-box"><span class="acc-vs-val">VS</span></div>
+            <span class="acc-t2">${escHtml(m.team2)}</span>
+          </div>
+          <div class="acc-row-right">
+            ${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : ''}
+            <span class="acc-arrow-icon">▶</span>
+          </div>
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="acc-block" style="--tc:${tierColor}">
+        <div class="acc-head" onclick="toggleAcc('${id}')">
+          <div class="acc-head-left">
+            ${tierBadge(grp.tier)}
+            <span class="acc-tourn">${escHtml(tourn)}</span>
+          </div>
+          <div class="acc-head-right">
+            <span class="acc-count">${grp.matches.length}</span>
+            <div class="acc-chevron" id="${id}-arrow">${isOpen?'▲':'▼'}</div>
+          </div>
+        </div>
+        <div class="acc-body" id="${id}" style="display:${isOpen?'block':'none'}">${rows}</div>
+      </div>`;
+  }).join('');
+}
+window.toggleAcc = (id) => {
+  const el = document.getElementById(id);
+  const chevron = document.getElementById(id + '-arrow');
+  if (!el) return;
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  if (chevron) chevron.textContent = isOpen ? '▼' : '▲';
+};
+
 // ============ MATCHES (CS2 / Dota2) ============
 async function renderMatches(c, game) {
-  const data = await api(`/api/matches/upcoming?game=${game}&hours=72`);
+  const data = await api(`/api/matches/upcoming?game=${game}&hours=720`);
   const live = data.filter(m => m.status === 'live');
   const up = data.filter(m => m.status === 'upcoming');
 
   let html = `
     <div class="section-head">
       <div class="left">
-        <h2>${game === 'cs2' ? 'CS2' : 'Dota 2'} <span class="sk">${game === 'cs2' ? '弾幕' : '剣戟'}</span></h2>
-        <p>Предстоящие и live · следующие 72 часа</p>
+        <h2>${game === 'cs2' ? 'CS2' : 'Dota 2'}</h2>
+        <p>Предстоящие и live · сгруппированы по турниру</p>
       </div>
       <div class="tabs">
         <button class="tab ${game==='cs2'?'active cs2':''}" onclick="navigate('cs2')">⚔ CS2</button>
@@ -1281,14 +1549,12 @@ async function renderMatches(c, game) {
     </div>
   `;
   if (live.length) {
-    html += `
-      <div class="section-title"><h3 style="color:var(--shu)">● LIVE</h3><span class="ks">生放送</span><span class="accent-line"></span><span class="chip live"><span class="dot"></span>${live.length} матчей</span></div>
-      <div class="grid g-match" style="margin-bottom:28px">${live.map(m => matchCardHtml(m, null)).join('')}</div>`;
+    html += `<div class="section-title"><h3 style="color:var(--shu)">● LIVE</h3><span class="accent-line"></span><span class="chip live"><span class="dot"></span>${live.length} матчей</span></div>
+      <div class="acc-list" style="margin-bottom:24px">${tournamentAccordion(live, true)}</div>`;
   }
   if (up.length) {
-    html += `
-      <div class="section-title"><h3>Предстоящие</h3><span class="ks">予定</span><span class="accent-line"></span><span class="chip">${up.length} матчей</span></div>
-      <div class="grid g-match">${up.map(m => matchCardHtml(m, null)).join('')}</div>`;
+    html += `<div class="section-title"><h3>Предстоящие</h3><span class="accent-line"></span><span class="chip">${up.length} матчей</span></div>
+      <div class="acc-list">${tournamentAccordion(up, true)}</div>`;
   }
   if (!data.length) {
     html += '<div class="empty"><div class="ek">空</div><div class="et">Матчей нет</div><div class="es">Возвращайся через час</div></div>';
@@ -1302,7 +1568,7 @@ async function renderResults(c) {
   c.innerHTML = `
     <div class="section-head">
       <div class="left">
-        <h2>Результаты <span class="sk">結果</span></h2>
+        <h2>Результаты</h2>
         <p>Последние завершённые матчи</p>
       </div>
       <div class="tabs">
@@ -1321,40 +1587,69 @@ async function loadResultsBody() {
   const body = document.getElementById('results-body');
   body.innerHTML = renderSkeleton();
   const q = resultsTab === 'all' ? '' : '?game=' + resultsTab;
-  const data = await api('/api/matches/results' + q + (q ? '&' : '?') + 'limit=40');
+  const data = await api('/api/matches/results' + q + (q ? '&' : '?') + 'limit=100');
   if (!data.length) {
     body.innerHTML = '<div class="empty"><div class="ek">空</div><div class="et">Результатов нет</div></div>';
     return;
   }
-  body.innerHTML = `
-    <div class="tbl-wrap">
-      <table class="tbl">
-        <thead><tr>
-          <th>Дата</th><th>Игра</th><th>Матч</th><th>Счёт</th><th>Турнир</th><th>Формат</th>
-        </tr></thead>
-        <tbody>
-          ${data.map(m => {
-            const t1W = m.score_team1 != null && m.score_team1 > m.score_team2;
-            const t2W = m.score_team1 != null && m.score_team2 > m.score_team1;
-            return `
-            <tr class="clickable" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
-              <td><div>${fmtDate(m.scheduled_at)}</div><div class="sub">${fmtTime(m.scheduled_at)}</div></td>
-              <td>${gameTag(m.game)}</td>
-              <td>
-                <div>
-                  <span style="color:${t1W?'var(--ok)':'var(--ink)'};font-weight:${t1W?'800':'600'}">${escHtml(m.team1)}</span>
-                  <span class="muted" style="margin:0 6px">vs</span>
-                  <span style="color:${t2W?'var(--ok)':'var(--ink)'};font-weight:${t2W?'800':'600'}">${escHtml(m.team2)}</span>
-                </div>
-              </td>
-              <td><span style="font-family:var(--mono);font-weight:800;color:var(--ink-hi)">${m.score_team1!=null?m.score_team1+':'+m.score_team2:'—'}</span></td>
-              <td style="color:var(--ink-mid);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.tournament||'—')}</td>
-              <td>${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : '—'}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>`;
+
+  // Группируем по турниру
+  const groups = {};
+  for (const m of data) {
+    const key = m.tournament || 'Неизвестный турнир';
+    if (!groups[key]) groups[key] = { matches: [], tier: m.tier || 3, game: m.game };
+    groups[key].matches.push(m);
+  }
+  const sorted = Object.entries(groups).sort(([ka, a], [kb, b]) => a.tier - b.tier || ka.localeCompare(kb));
+
+  const blocks = sorted.map(([tourn, grp]) => {
+    const id = 'res-' + Math.random().toString(36).slice(2);
+    const tierColor = {1:'var(--gold,#f4c430)',2:'var(--ai,#4cc9f0)',3:'#888'}[grp.tier] || '#888';
+    const rows = grp.matches.map(m => {
+      const t1W = m.score_team1 != null && m.score_team1 > m.score_team2;
+      const t2W = m.score_team1 != null && m.score_team2 > m.score_team1;
+      const hasScore = m.score_team1 != null;
+      return `
+        <div class="acc-row" onclick="openMatch(${m.id}, ${JSON.stringify(m.team1).replace(/"/g,'&quot;')}, ${JSON.stringify(m.team2).replace(/"/g,'&quot;')}, '${m.game}')">
+          <div class="acc-time">
+            <span class="acc-date">${fmtDate(m.scheduled_at)}</span>
+            <span class="acc-t-time">${fmtTime(m.scheduled_at)}</span>
+          </div>
+          <div class="acc-sep"></div>
+          <div class="acc-teams">
+            <span class="acc-t1 ${t1W?'win':''}">${escHtml(m.team1)}</span>
+            <div class="acc-score-box">
+              ${hasScore
+                ? `<span class="acc-score-val">${m.score_team1}:${m.score_team2}</span>`
+                : `<span class="acc-vs-val">—</span>`}
+            </div>
+            <span class="acc-t2 ${t2W?'win':''}">${escHtml(m.team2)}</span>
+          </div>
+          <div class="acc-row-right">
+            ${gameTag(m.game)}
+            ${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : ''}
+            <span class="acc-arrow-icon">▶</span>
+          </div>
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="acc-block" style="--tc:${tierColor}">
+        <div class="acc-head" onclick="toggleAcc('${id}')">
+          <div class="acc-head-left">
+            ${tierBadge(grp.tier)}
+            <span class="acc-tourn">${escHtml(tourn)}</span>
+          </div>
+          <div class="acc-head-right">
+            <span class="acc-count">${grp.matches.length}</span>
+            <div class="acc-chevron" id="${id}-arrow">▼</div>
+          </div>
+        </div>
+        <div class="acc-body" id="${id}" style="display:none">${rows}</div>
+      </div>`;
+  }).join('');
+
+  body.innerHTML = `<div class="acc-list">${blocks}</div>`;
 }
 
 // ============ BETS ============
@@ -1372,7 +1667,7 @@ async function renderBets(c) {
   c.innerHTML = `
     <div class="section-head">
       <div class="left">
-        <h2>Ставки <span class="sk">仮想賭け</span></h2>
+        <h2>Ставки</h2>
         <p>Виртуальный банк · решения, основанные на анализе</p>
       </div>
     </div>
@@ -1385,7 +1680,7 @@ async function renderBets(c) {
     </div>
 
     ${stats.by_conf && Object.keys(stats.by_conf).length ? `
-      <div class="section-title"><h3>По уверенности предиктора</h3><span class="ks">確信度</span><span class="accent-line"></span></div>
+      <div class="section-title"><h3>По уверенности предиктора</h3><span class="accent-line"></span></div>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:24px;gap:14px">
         ${Object.entries(stats.by_conf).map(([conf, d]) => {
           const cwr = d.total ? (d.won / d.total * 100) : 0;
@@ -1415,7 +1710,7 @@ async function renderBets(c) {
     ` : ''}
 
     <div class="section-title">
-      <h3>История ставок</h3><span class="ks">履歴</span><span class="accent-line"></span>
+      <h3>История ставок</h3><span class="accent-line"></span>
       <div class="tabs">
         <button class="tab ${betsTab==='all'?'active':''}" onclick="switchBetsTab('all')">Все <span class="count">${list.length}</span></button>
         <button class="tab ${betsTab==='pending'?'active':''}" onclick="switchBetsTab('pending')">◷ Ждём</button>
@@ -1472,7 +1767,7 @@ async function renderTeams(c) {
   c.innerHTML = `
     <div class="section-head">
       <div class="left">
-        <h2>Команды <span class="sk">部隊</span></h2>
+        <h2>Команды</h2>
         <p>Рейтинги и составы · ${teamsGame === 'cs2' ? 'Counter-Strike 2' : 'Dota 2'}</p>
       </div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -1516,8 +1811,10 @@ async function loadTeamsBody() {
 function teamCardHtml(t, rank) {
   const wr = t.winrate || 0;
   const wrColor = wr >= 60 ? 'var(--ok)' : wr >= 45 ? 'var(--warn)' : 'var(--bad)';
+  const tierColors = {1:'#f4c430',2:'#4cc9f0',3:'#888888'};
+  const tierColor = tierColors[t.tier||3] || '#888888';
   return `
-    <div class="team-card" onclick="openTeam(${JSON.stringify(t.name).replace(/"/g,'&quot;')}, '${t.game}')">
+    <div class="team-card fade-up" style="--tier-color:${tierColor};animation-delay:${(rank-1)*0.04}s" onclick="openTeam(${JSON.stringify(t.name).replace(/"/g,'&quot;')}, '${t.game}')">
       <div class="rk">#${rank}</div>
       <div class="nm">${escHtml(t.name)}</div>
       <div class="tg">${t.tag ? '[' + escHtml(t.tag) + ']' : '—'}</div>
@@ -1841,6 +2138,29 @@ async function loadMarkets(matchId, team1, team2, game) {
 }
 
 // ============ TEAM MODAL ============
+window.toggleMatchTip = (el, idx) => {
+  // Закрываем все другие тултипы
+  document.querySelectorAll('[id^="mtip-"]').forEach(t => {
+    if (t.id !== `mtip-${idx}`) t.style.display = 'none';
+  });
+  const tip = document.getElementById(`mtip-${idx}`);
+  if (!tip) return;
+  const isOpen = tip.style.display !== 'none';
+  tip.style.display = isOpen ? 'none' : 'block';
+  // Закрываем по клику вне
+  if (!isOpen) {
+    setTimeout(() => {
+      const close = (e) => {
+        if (!tip.contains(e.target) && e.target !== el) {
+          tip.style.display = 'none';
+          document.removeEventListener('click', close);
+        }
+      };
+      document.addEventListener('click', close);
+    }, 10);
+  }
+};
+
 async function openTeam(name, game) {
   const ov = document.getElementById('overlay');
   const mc = document.getElementById('modal-content');
@@ -1848,7 +2168,10 @@ async function openTeam(name, game) {
   ov.classList.add('open');
 
   try {
-    const t = await api(`/api/team/${encodeURIComponent(name)}?game=${game}`);
+    const [t, teamMatches] = await Promise.all([
+      api(`/api/team/${encodeURIComponent(name)}?game=${game}`),
+      api(`/api/team/${encodeURIComponent(name)}/matches?game=${game}&limit=15`),
+    ]);
     const total = (t.wins||0) + (t.losses||0);
     const wr = total ? (t.wins/total*100) : 0;
     const wrColor = wr >= 60 ? 'var(--ok)' : wr >= 45 ? 'var(--warn)' : 'var(--bad)';
@@ -1880,11 +2203,43 @@ async function openTeam(name, game) {
         </div>
       </div>
 
-      ${t.form ? `
+      ${t.form && teamMatches.length ? `
+        <div class="card" style="background:var(--bg-base);margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <span style="font-size:13px;font-weight:800;color:var(--ink-hi)">Последняя форма</span>
+            <span style="font-size:11px;color:var(--ink-low)">кликни на W/L для деталей</span>
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${teamMatches.slice(0,10).reverse().map((m,i) => `
+              <div style="position:relative;display:inline-block">
+                <span class="fb ${m.result}" style="cursor:pointer;font-size:13px;padding:4px 8px;border-radius:6px;user-select:none"
+                  onclick="toggleMatchTip(this, ${i})">${m.result}</span>
+                <div id="mtip-${i}" style="display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+                  background:var(--bg-card-hi);border:1px solid var(--line-strong);border-radius:10px;
+                  padding:10px 12px;min-width:220px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,0.4);white-space:nowrap">
+                  <div style="font-size:10px;color:var(--ink-low);margin-bottom:4px">${m.scheduled_at ? fmtDate(m.scheduled_at) + ' · ' + fmtTime(m.scheduled_at) : ''}</div>
+                  <div style="font-size:13px;font-weight:700;color:${m.result==='W'?'var(--ok)':'var(--bad)'};margin-bottom:4px">
+                    ${m.result==='W'?'✓ Победа':'✗ Поражение'} — <span style="font-family:var(--mono);font-size:15px">${m.score_own}:${m.score_opp}</span>
+                  </div>
+                  <div style="font-size:13px;color:var(--ink-hi);font-weight:600">
+                    vs <span style="color:var(--ai)">${escHtml(m.opponent)}</span>
+                  </div>
+                  <div style="font-size:11px;color:var(--ink-low);margin-top:4px;display:flex;align-items:center;gap:6px">
+                    ${tierBadge(m.tier||3)}
+                    <span style="overflow:hidden;text-overflow:ellipsis;max-width:160px">${escHtml(m.tournament||'—')}</span>
+                    ${m.match_format ? `<span class="format-tag">${escHtml(m.match_format)}</span>` : ''}
+                  </div>
+                  <div style="position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);
+                    width:8px;height:8px;background:var(--bg-card-hi);border-right:1px solid var(--line-strong);
+                    border-bottom:1px solid var(--line-strong);transform:translateX(-50%) rotate(45deg)"></div>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>` : (t.form ? `
         <div class="card" style="background:var(--bg-base);margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">
           <span style="font-size:13px;font-weight:800;color:var(--ink-hi)">Последняя форма</span>
           ${formStreak(t.form)}
-        </div>` : ''}
+        </div>` : '')}
 
       ${t.players && t.players.length ? `
         <div class="card" style="background:var(--bg-base);margin-bottom:14px">
@@ -2046,7 +2401,7 @@ async function renderNews(c) {
 
       ${highImpact.length ? `
         <div class="section-title" style="margin-bottom:12px">
-          <h3>⚠️ Важные события</h3><span class="ks">警</span><span class="accent-line"></span>
+          <h3>⚠️ Важные события</h3><span class="accent-line"></span>
         </div>
         <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
           ${highImpact.map(eventCardHtml).join('')}
@@ -2056,7 +2411,7 @@ async function renderNews(c) {
       <div class="grid g-2-1" style="gap:20px">
         <div>
           <div class="section-title" style="margin-bottom:12px">
-            <h3>📰 Все события</h3><span class="ks">事</span><span class="accent-line"></span>
+            <h3>📰 Все события</h3><span class="accent-line"></span>
           </div>
           ${otherEvents.length || highImpact.length ? `
             <div style="display:flex;flex-direction:column;gap:8px">
@@ -2068,7 +2423,7 @@ async function renderNews(c) {
 
         <div>
           <div class="section-title" style="margin-bottom:12px">
-            <h3>💬 Из каналов</h3><span class="ks">話</span><span class="accent-line"></span>
+            <h3>💬 Из каналов</h3><span class="accent-line"></span>
           </div>
           ${messages.length ? `
             <div style="display:flex;flex-direction:column;gap:8px">
@@ -2084,6 +2439,21 @@ async function renderNews(c) {
   window.newsSetHours = (h) => { hoursFilter = h; doRender(); };
   await doRender();
 }
+
+// ============ THEME TOGGLE ============
+function toggleTheme() {
+  const isLight = document.documentElement.classList.toggle('light');
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+  document.getElementById('theme-toggle-btn').textContent = isLight ? '☀️' : '🌙';
+}
+(function initTheme() {
+  const saved = localStorage.getItem('theme');
+  if (saved === 'light') {
+    document.documentElement.classList.add('light');
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.textContent = '☀️';
+  }
+})();
 
 // ============ CLOCK ============
 function tick() {

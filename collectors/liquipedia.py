@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from db.models import Match, Player, Team
+from collectors.tournament_tiers import get_tier
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +67,31 @@ class LiquipediaCollector:
     async def fetch_upcoming_matches(self, game: str) -> list[dict]:
         """
         game: 'dota2' или 'counterstrike'
-        Парсим HTML страницу Liquipedia:Matches
+        Парсим главную страницу Liquipedia:Matches + страницы активных турниров.
         """
         html = await self._get_html(game, "Liquipedia:Matches")
-        if not html:
-            return []
+        matches = self._parse_html_matches(html or "", game)
+        logger.info("Liquipedia %s: main page -> %d matches", game, len(matches))
 
-        matches = self._parse_html_matches(html, game)
-        logger.info("Liquipedia %s: parsed %d matches from HTML", game, len(matches))
+        # Дополнительно парсим страницы активных турниров (через urllib — без SSL-проблем)
+        if game == "counterstrike":
+            extra = await asyncio.get_event_loop().run_in_executor(
+                None, _fetch_cs2_tournament_matches
+            )
+            # Дедупликация: если (tournament, scheduled_at) уже есть — пропускаем
+            # чтобы не было "1w Team" + "1w" для одного и того же матча
+            existing_time_keys = {
+                (m.get("tournament"), m.get("scheduled_at"))
+                for m in matches
+                if m.get("scheduled_at")
+            }
+            for m in extra:
+                time_key = (m.get("tournament"), m.get("scheduled_at"))
+                if time_key not in existing_time_keys:
+                    matches.append(m)
+                    existing_time_keys.add(time_key)
+            logger.info("Liquipedia cs2: after tournament pages -> %d matches total", len(matches))
+
         return matches
 
     def _parse_html_matches(self, html: str, game: str) -> list[dict]:
@@ -181,34 +199,45 @@ class LiquipediaCollector:
     # --- Сохранение в БД ---
 
     async def save_upcoming_matches(self, db: AsyncSession, game: str) -> int:
+        from datetime import timezone, timedelta
+        from sqlalchemy import delete
+
         lp_game = "dota2" if game == "dota2" else "counterstrike"
         matches_data = await self.fetch_upcoming_matches(lp_game)
-        count = 0
 
+        # Удаляем все стухшие upcoming от этого источника для данной игры
+        now = datetime.utcnow()
+        await db.execute(
+            delete(Match).where(
+                Match.source == "liquipedia",
+                Match.game == game,
+                Match.status == "upcoming",
+            )
+        )
+
+        count = 0
+        cutoff_past = now - timedelta(days=7)  # не берём матчи старше 7 дней
         for m in matches_data:
             if not m.get("team1") or not m.get("team2"):
                 continue
-
-            result = await db.execute(
-                select(Match).where(
-                    Match.team1_name == m["team1"],
-                    Match.team2_name == m["team2"],
-                    Match.source == "liquipedia",
-                    Match.scheduled_at == m.get("scheduled_at"),
-                )
-            )
-            if result.scalar_one_or_none():
+            scheduled = m.get("scheduled_at")
+            # Пропускаем матчи без даты или слишком старые
+            if scheduled and scheduled < cutoff_past:
                 continue
+            # Прошедшие матчи — finished, будущие — upcoming
+            status = "finished" if scheduled and scheduled < now else "upcoming"
 
+            tournament_name = m.get("tournament") or ""
             match = Match(
                 source="liquipedia",
                 game=game,
                 team1_name=m["team1"],
                 team2_name=m["team2"],
-                tournament=m.get("tournament"),
+                tournament=tournament_name or None,
                 match_format=m.get("match_format"),
-                scheduled_at=m.get("scheduled_at"),
-                status="upcoming",
+                scheduled_at=scheduled,
+                status=status,
+                tier=get_tier(tournament_name, game),
             )
             db.add(match)
             count += 1
@@ -218,10 +247,252 @@ class LiquipediaCollector:
         return count
 
 
+def _fetch_page_matches_urllib(url: str, game_tag: str, tournament_name: str) -> list[dict]:
+    """Синхронный парсер страницы турнира через urllib (без aiohttp SSL-проблем)."""
+    import urllib.request
+    import ssl
+    import time
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "esports-bot/1.0", "Accept": "text/html"}
+        )
+        with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
+            html = r.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        logger.warning("Tournament page fetch failed %s: %s", url, e)
+        return []
+
+    soup = BeautifulSoup(html, "lxml")
+    now = datetime.utcnow()
+    matches = []
+    seen = set()
+
+    for row in soup.find_all("div", class_="match-info"):
+        try:
+            timer = row.find("span", class_="timer-object")
+            if not timer or not timer.get("data-timestamp"):
+                continue
+            scheduled_at = datetime.utcfromtimestamp(int(timer["data-timestamp"]))
+            if scheduled_at < now - __import__("datetime").timedelta(hours=2):
+                continue
+
+            # Пробуем match-info-header-opponent сначала, потом span.name как fallback
+            def _name(el):
+                ns = el.find("span", class_="name")
+                if ns:
+                    a = ns.find("a")
+                    if a and a.get("title"):
+                        return a["title"].replace("(page does not exist)", "").strip()
+                    return ns.get_text(strip=True)
+                a = el.find("a", title=True)
+                return a["title"].strip() if a else ""
+
+            opponents = row.find_all("div", class_="match-info-header-opponent")
+            if len(opponents) >= 2:
+                t1, t2 = _name(opponents[0]), _name(opponents[1])
+            else:
+                # Fallback для турнирных страниц: span.name напрямую
+                names = [
+                    n.get_text(strip=True)
+                    for n in row.find_all("span", class_="name")
+                    if n.get_text(strip=True) not in ("", "TBD")
+                ]
+                if len(names) < 2:
+                    continue
+                t1, t2 = names[0], names[-1]
+
+            if not t1 or not t2 or t1 == t2 or "TBD" in (t1, t2):
+                continue
+
+            key = (t1, t2, scheduled_at.isoformat())
+            if key in seen:
+                continue
+            seen.add(key)
+
+            fmt_el = row.find("span", class_="match-info-header-scoreholder-lower")
+            fmt = fmt_el.get_text(strip=True).strip("()") if fmt_el else ""
+
+            matches.append({
+                "team1": t1,
+                "team2": t2,
+                "scheduled_at": scheduled_at,
+                "match_format": fmt,
+                "tournament": tournament_name,
+                "game": game_tag,
+                "source": "liquipedia",
+            })
+        except Exception as ex:
+            logger.debug("Tournament match parse error: %s", ex)
+
+    return matches
+
+
+# Список активных CS2 турниров для дополнительного парсинга
+# Обновляй когда меняются турниры (slug = часть URL на liquipedia.net/counterstrike/<slug>)
+CS2_ACTIVE_TOURNAMENTS = [
+    ("NODWIN_Gaming/Clutch_Series/8",  "NODWIN Gaming/Clutch Series/8"),
+    ("CS_Asia_Championships/2026",     "CS Asia Championships/2026"),
+]
+
+
+def _fetch_cs2_tournament_matches() -> list[dict]:
+    """Собирает матчи со страниц активных CS2 турниров."""
+    import time
+    all_matches = []
+    for slug, name in CS2_ACTIVE_TOURNAMENTS:
+        url = f"https://liquipedia.net/counterstrike/{slug}"
+        m = _fetch_page_matches_urllib(url, "cs2", name)
+        logger.info("Tournament %s: %d matches", name, len(m))
+        all_matches.extend(m)
+        time.sleep(3)
+    return all_matches
+
+
+def _parse_bracket_scores(url: str, tournament_name: str, game: str) -> list[dict]:
+    """Парсит bracket-страницу турнира и возвращает матчи с реальными счётами."""
+    import urllib.request
+    import ssl as ssl_module
+    import time
+
+    ctx = ssl_module.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl_module.CERT_NONE
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "esports-bot/1.0", "Accept": "text/html"})
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+            html = r.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        logger.warning("Bracket fetch failed %s: %s", tournament_name, e)
+        return []
+
+    soup = BeautifulSoup(html, "lxml")
+    results = []
+    for match in soup.find_all("div", class_="brkts-match"):
+        full_names = []
+        for a in match.find_all("a", title=True):
+            t = a["title"]
+            if "does not exist" in t or len(t) < 2:
+                continue
+            if t not in full_names:
+                full_names.append(t)
+            if len(full_names) == 2:
+                break
+
+        names_span = [s.get_text(strip=True) for s in match.find_all("span", class_="name") if s.get_text(strip=True)]
+        t1 = full_names[0] if len(full_names) >= 1 else (names_span[0] if names_span else None)
+        t2 = full_names[1] if len(full_names) >= 2 else (names_span[-1] if len(names_span) >= 2 else None)
+        if not t1 or not t2 or t1 == t2:
+            continue
+
+        score_els = match.find_all("div", class_="brkts-opponent-score-inner")
+        scores = [s.get_text(strip=True) for s in score_els]
+        if not scores or not any(s.isdigit() for s in scores):
+            continue
+        s1 = int(scores[0]) if scores and scores[0].isdigit() else None
+        s2 = int(scores[1]) if len(scores) > 1 and scores[1].isdigit() else None
+        # Пропускаем 0:0 — матч ещё не сыгран
+        if s1 == 0 and s2 == 0:
+            continue
+
+        timer = match.find("span", class_="timer-object")
+        dt = None
+        if timer and timer.get("data-timestamp"):
+            dt = datetime.utcfromtimestamp(int(timer["data-timestamp"]))
+
+        if s1 is not None and s2 is not None:
+            results.append({"t1": t1, "t2": t2, "s1": s1, "s2": s2, "dt": dt,
+                            "tournament": tournament_name, "game": game})
+    return results
+
+
+# Турниры для парсинга bracket-счётов
+CS2_BRACKET_TOURNAMENTS = [
+    # T1 — 2026
+    ("https://liquipedia.net/counterstrike/Intel_Extreme_Masters/2026/Atlanta",       "Intel Extreme Masters/2026/Atlanta",       "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Astana",                          "PGL/2026/Astana",                          "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Bucharest",                       "PGL/2026/Bucharest",                       "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Masters/Europe",                  "PGL/2026/Masters/Europe",                  "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Masters/North_America",           "PGL/2026/Masters/North America",           "cs2"),
+    ("https://liquipedia.net/counterstrike/PGL/2026/Masters/South_America",           "PGL/2026/Masters/South America",           "cs2"),
+    # T2 — 2026
+    ("https://liquipedia.net/counterstrike/CS_Asia_Championships/2026",               "CS Asia Championships/2026",               "cs2"),
+    ("https://liquipedia.net/counterstrike/Hero_Esports/Asian_Champions_League/2026", "Hero Esports/Asian Champions League/2026", "cs2"),
+    ("https://liquipedia.net/counterstrike/CCT/2026/Europe/Series_1",                 "CCT/2026/Europe/Series 1",                 "cs2"),
+    ("https://liquipedia.net/counterstrike/CCT/2026/Europe/Series_2",                 "CCT/2026/Europe/Series 2",                 "cs2"),
+    ("https://liquipedia.net/counterstrike/CCT/2026/Europe/Series_3",                 "CCT/2026/Europe/Series 3",                 "cs2"),
+    ("https://liquipedia.net/counterstrike/CCT/2026/Europe/Series_4",                 "CCT/2026/Europe/Series 4",                 "cs2"),
+    ("https://liquipedia.net/counterstrike/BLAST/Rivals/2026/Spring",                 "BLAST/Rivals/2026/Spring",                 "cs2"),
+    # T3 — 2026
+    ("https://liquipedia.net/counterstrike/NODWIN_Gaming/Clutch_Series/8",            "NODWIN Gaming/Clutch Series/8",            "cs2"),
+]
+
+
+async def run_bracket_scores_sync(db: AsyncSession) -> None:
+    """Собирает реальные счёты из bracket-страниц турниров и обновляет БД."""
+    from datetime import timedelta
+    from sqlalchemy import select
+    from db.models import Match
+
+    def fetch_all():
+        import time
+        results = []
+        for url, name, game in CS2_BRACKET_TOURNAMENTS:
+            r = _parse_bracket_scores(url, name, game)
+            logger.info("Bracket %s: %d scored matches", name, len(r))
+            results.extend(r)
+            time.sleep(2)
+        return results
+
+    all_matches = await asyncio.get_event_loop().run_in_executor(None, fetch_all)
+    updated = inserted = 0
+
+    for m in all_matches:
+        if m["dt"]:
+            result = await db.execute(
+                select(Match).where(
+                    Match.game == m["game"],
+                    Match.team1_name == m["t1"],
+                    Match.team2_name == m["t2"],
+                    Match.scheduled_at >= m["dt"] - timedelta(hours=2),
+                    Match.scheduled_at <= m["dt"] + timedelta(hours=2),
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                existing.score_team1 = m["s1"]
+                existing.score_team2 = m["s2"]
+                existing.status = "finished"
+                updated += 1
+                continue
+
+        match = Match(
+            source="liquipedia", game=m["game"],
+            team1_name=m["t1"], team2_name=m["t2"],
+            tournament=m["tournament"], scheduled_at=m["dt"],
+            status="finished", score_team1=m["s1"], score_team2=m["s2"],
+            tier=get_tier(m["tournament"] or "", m["game"]),
+        )
+        db.add(match)
+        inserted += 1
+
+    await db.commit()
+    logger.info("Bracket scores sync: updated=%d inserted=%d", updated, inserted)
+
+
 async def run_liquipedia_sync(db: AsyncSession) -> None:
     """Точка входа для планировщика."""
-    async with aiohttp.ClientSession() as http:
+    import ssl
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+    connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+    async with aiohttp.ClientSession(connector=connector) as http:
         collector = LiquipediaCollector(http)
         await collector.save_upcoming_matches(db, "dota2")
         await collector.save_upcoming_matches(db, "cs2")
-        logger.info("Liquipedia sync complete")
+    await run_bracket_scores_sync(db)
+    logger.info("Liquipedia sync complete")
