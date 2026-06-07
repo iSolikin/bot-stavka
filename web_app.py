@@ -397,14 +397,31 @@ async def teams_list(
     game: Optional[str] = None,
     limit: int = Query(50, ge=1, le=200),
     search: Optional[str] = None,
+    min_games: int = Query(10, ge=0, le=100),
 ):
-    from db.models import Team
+    from db.models import Team, Match
     async with SessionLocal() as db:
         q = select(Team)
         if game:
             q = q.where(Team.game == game)
         if search:
             q = q.where(Team.name.ilike(f"%{search}%"))
+
+        # Для Dota2 отсеиваем команды с малым числом сыгранных матчей на про-сцене.
+        # Считаем реальные завершённые матчи (Team.wins/losses ненадёжны — агрегат за всё время).
+        if game == "dota2" and min_games > 0:
+            games_count = (
+                select(func.count(Match.id))
+                .where(
+                    Match.game == "dota2",
+                    Match.status == "finished",
+                    or_(Match.team1_name == Team.name, Match.team2_name == Team.name),
+                )
+                .correlate(Team)
+                .scalar_subquery()
+            )
+            q = q.where(games_count >= min_games)
+
         # Для CS2 сортируем по HLTV рейтингу (если есть), иначе по обычному
         if game == "cs2":
             q = q.order_by(desc(Team.hltv_rating).nullslast(), desc(Team.rating)).limit(limit)
