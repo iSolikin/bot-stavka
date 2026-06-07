@@ -60,9 +60,20 @@ class OpenDotaCollector:
         return data if isinstance(data, list) else []
 
     async def fetch_upcoming_matches(self) -> list[dict]:
-        """Получить предстоящие матчи через scheduled matches."""
+        """Получить текущие live-матчи (endpoint /live)."""
         data = await self._get("/live")
         return data if isinstance(data, list) else []
+
+    async def fetch_leagues(self) -> dict[int, str]:
+        """Получить карту {league_id: name} для подстановки названий турниров в live-матчи."""
+        data = await self._get("/leagues")
+        if not isinstance(data, list):
+            return {}
+        return {
+            int(lg["leagueid"]): lg.get("name") or ""
+            for lg in data
+            if lg.get("leagueid") is not None
+        }
 
     async def fetch_team_players(self, team_id: int) -> list[dict]:
         """Получить игроков команды."""
@@ -217,17 +228,29 @@ class OpenDotaCollector:
         )
 
         matches_data = await self.fetch_upcoming_matches()
+
+        # Карта названий лиг (в /live есть только league_id, без имени)
+        try:
+            leagues = await self.fetch_leagues()
+        except Exception:
+            leagues = {}
+
         count = 0
         for m in matches_data:
             match_id = str(m.get("match_id", ""))
             if not match_id:
                 continue
 
-            # Берём имена команд из вложенных объектов
-            team1 = (m.get("radiant_team") or {}).get("team_name") or ""
-            team2 = (m.get("dire_team") or {}).get("team_name") or ""
+            # /live отдаёт плоские поля team_name_radiant / team_name_dire
+            team1 = m.get("team_name_radiant") or ""
+            team2 = m.get("team_name_dire") or ""
             # Пропускаем матчи без нормальных имён команд
             if not team1 or not team2:
+                continue
+
+            # Только турнирные матчи (league_id > 0) — отсекаем паблики/мусор
+            league_id = m.get("league_id") or 0
+            if not league_id:
                 continue
 
             result = await db.execute(
@@ -236,16 +259,22 @@ class OpenDotaCollector:
             if result.scalar_one_or_none():
                 continue
 
+            league_name = leagues.get(int(league_id)) or ""
+            r_score = m.get("radiant_score")
+            d_score = m.get("dire_score")
+
             match = Match(
                 external_id=match_id,
                 source="opendota",
                 game="dota2",
                 team1_name=team1,
                 team2_name=team2,
-                tournament=(m.get("league") or {}).get("name"),
-                tier=get_tier((m.get("league") or {}).get("name") or "", "dota2"),
+                tournament=league_name or None,
+                tier=get_tier(league_name, "dota2"),
                 scheduled_at=datetime.utcnow(),
                 status="live",
+                score_team1=r_score if isinstance(r_score, int) else None,
+                score_team2=d_score if isinstance(d_score, int) else None,
             )
             db.add(match)
             count += 1

@@ -43,6 +43,8 @@ _DOTA2_TIER1 = [
     "the international",
     "dreamleague",          # DL Season/Group Stage — основной турнир (Division 2/квалы упадут через downgrade)
     "esl one",
+    "blast slam",           # BLAST SLAM — топовый турнир
+    "blast",
     "pgl wallachia",
     "pgl",                  # PGL мейджоры/серии
     "bali major",
