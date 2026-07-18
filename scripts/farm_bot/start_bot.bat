@@ -8,26 +8,24 @@ echo ============================================
 
 where python >nul 2>nul
 if errorlevel 1 (
-    echo [ERROR] Python не найден! Установи с https://python.org
-    echo         При установке поставь галочку "Add Python to PATH"
+    echo [ERROR] Python not found! Install from https://python.org
+    echo         Check "Add Python to PATH" during install.
     pause
     exit /b 1
 )
 
 if not exist "templates\tree.png" (
-    echo [WARNING] Нет файла templates\tree.png !
-    echo           Вырежи дерево из игры через Win+Shift+S и сохрани туда.
+    echo [WARNING] templates\tree.png missing!
 )
 if not exist "templates\ore.png" (
-    echo [WARNING] Нет файла templates\ore.png !
-    echo           Вырежи руду из игры через Win+Shift+S и сохрани туда.
+    echo [WARNING] templates\ore.png missing!
 )
 
 if not exist ".deps_installed" (
-    echo [SETUP] Первый запуск - ставлю зависимости...
+    echo [SETUP] First run - installing dependencies...
     python -m pip install -r requirements.txt
     if errorlevel 1 (
-        echo [ERROR] Не удалось установить зависимости.
+        echo [ERROR] Failed to install dependencies.
         pause
         exit /b 1
     )
@@ -35,10 +33,10 @@ if not exist ".deps_installed" (
 )
 
 echo.
-echo Запускаю бота... F8 - пауза, F9 - выход
+echo Starting bot... F8 = pause, F9 = quit
 echo.
-python farm_bot.py
+python -u farm_bot.py
 
 echo.
-echo Бот завершил работу.
+echo Bot stopped.
 pause
