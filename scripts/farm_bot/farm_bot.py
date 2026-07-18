@@ -2,12 +2,13 @@
 """
 Farm Bot для Kingdom Realms (North Wilds).
 
-Логика (по приоритету, каждый цикл сканирует экран заново):
+Логика (каждый цикл сканирует экран заново):
   1. Лут на земле (связки брёвен wood_drop.png, куски руды ore_drop.png) —
      подбирается сразу, как только появился
-  2. Деревья (tree.png) — кликает по ближайшему и добивает
-  3. Кучки руды (ore.png) — когда деревьев не осталось
-  4. Если целей нет — ждёт 10 сек и сканирует снова
+  2. Добыча с чередованием: срубил дерево (tree.png) -> идёт за рудой
+     (ore.png) -> снова дерево -> снова руда...
+     Если нужного ресурса на экране нет — берёт другой.
+  3. Если целей нет — ждёт 10 сек и сканирует снова
 
 Управление:
   F8 — пауза / продолжить
@@ -59,8 +60,11 @@ WALK_DELAY = 2.5         # сек ожидания после первого к�
 SCAN_DELAY = 1.0         # сек между полными сканами экрана
 MONITOR_INDEX = 1        # номер монитора для mss (1 = основной)
 
-# Приоритет: сначала подбираем лут с земли, потом рубим деревья, потом руду
-FARM_ORDER = ["wood_drop", "ore_drop", "tree", "ore"]
+# Лут всегда подбираем первым делом
+LOOT_ORDER = ["wood_drop", "ore_drop"]
+# Добычу чередуем: дерево -> руда -> дерево -> руда ...
+HARVEST_ROTATION = ["tree", "ore"]
+FARM_ORDER = LOOT_ORDER + HARVEST_ROTATION  # (для статистики)
 
 LOOT_TIMEOUT = 15        # сек — максимум на подбор одного лута
 
@@ -177,14 +181,17 @@ def harvest_target(sct, tpl, pos, name):
     return False
 
 
-def pick_next_target(sct, templates, screen_center):
-    """Сканирует экран, возвращает (тип, позиция) самой приоритетной цели.
+def pick_next_target(sct, templates, screen_center, preferred):
+    """Сканирует экран, возвращает (тип, позиция) следующей цели.
 
-    Приоритет по FARM_ORDER: лут всегда подбираем раньше, чем рубим дальше.
+    Порядок: сначала лут с земли, потом добыча с чередованием — если в
+    прошлый раз рубили дерево, теперь ищем руду (и наоборот). Если
+    предпочтительного ресурса на экране нет — берём другой.
     Среди целей одного типа берём ближайшую к персонажу (центру экрана).
     """
+    rotation = [preferred] + [n for n in HARVEST_ROTATION if n != preferred]
     screen, offset = grab_screen(sct)
-    for name in FARM_ORDER:
+    for name in LOOT_ORDER + rotation:
         if name not in templates:
             continue
         targets = find_targets(screen, templates[name])
@@ -215,10 +222,11 @@ def main():
     time.sleep(5)
 
     stats = {name: 0 for name in FARM_ORDER}
+    preferred = HARVEST_ROTATION[0]  # с чего начинаем добычу
     with mss() as sct:
         while _state["running"]:
             wait_if_paused()
-            name, pos = pick_next_target(sct, templates, screen_center)
+            name, pos = pick_next_target(sct, templates, screen_center, preferred)
             if name is None:
                 print("[IDLE] целей не видно, ждём 10 сек и сканируем снова...")
                 time.sleep(10)
@@ -228,6 +236,11 @@ def main():
                 stats[name] += 1
                 print("[STATS] " + " | ".join(
                     f"{k}: {v}" for k, v in stats.items() if v))
+
+            if name in HARVEST_ROTATION:
+                # чередование: после дерева идём за рудой и наоборот
+                idx = HARVEST_ROTATION.index(name)
+                preferred = HARVEST_ROTATION[(idx + 1) % len(HARVEST_ROTATION)]
             time.sleep(SCAN_DELAY)
 
 
