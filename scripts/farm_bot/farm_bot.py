@@ -2,12 +2,12 @@
 """
 Farm Bot для Kingdom Realms (North Wilds).
 
-Логика:
-  1. Ищет на экране деревья по шаблону templates/tree.png
-  2. Кликает по ближайшему к персонажу дереву и добивает его
-     (кликает, пока шаблон в этой точке не исчезнет = дерево срублено)
-  3. Когда деревьев не осталось — переключается на руду (templates/ore.png)
-  4. Когда и руда кончилась — начинает цикл заново (карта могла обновиться)
+Логика (по приоритету, каждый цикл сканирует экран заново):
+  1. Лут на земле (связки брёвен wood_drop.png, куски руды ore_drop.png) —
+     подбирается сразу, как только появился
+  2. Деревья (tree.png) — кликает по ближайшему и добивает
+  3. Кучки руды (ore.png) — когда деревьев не осталось
+  4. Если целей нет — ждёт 10 сек и сканирует снова
 
 Управление:
   F8 — пауза / продолжить
@@ -17,8 +17,10 @@ Farm Bot для Kingdom Realms (North Wilds).
 Перед запуском:
   1. pip install -r requirements.txt
   2. Вырежи шаблоны (Win+Shift+S) и сохрани в папку templates/:
-       tree.png — одно дерево (только крона, без фона по краям)
-       ore.png  — одна кучка руды
+       tree.png      — одно дерево (только крона, без фона по краям)
+       ore.png       — одна кучка руды
+       wood_drop.png — связка брёвен, лежащая на земле (лут)
+       ore_drop.png  — кусок руды на земле (лут)
   3. Открой игру, не сворачивай окно, масштаб браузера 100%
   4. python farm_bot.py
 """
@@ -41,9 +43,14 @@ from mss import mss
 
 BASE_DIR = Path(__file__).parent
 TEMPLATES = {
-    "tree": BASE_DIR / "templates" / "tree.png",
-    "ore": BASE_DIR / "templates" / "ore.png",
+    "wood_drop": BASE_DIR / "templates" / "wood_drop.png",  # связка брёвен (лут)
+    "ore_drop": BASE_DIR / "templates" / "ore_drop.png",    # кусок руды (лут)
+    "tree": BASE_DIR / "templates" / "tree.png",             # дерево
+    "ore": BASE_DIR / "templates" / "ore.png",               # кучка руды
 }
+
+# Лут — это подбор одним кликом, а не добыча
+LOOT_TYPES = {"wood_drop", "ore_drop"}
 
 CONFIDENCE = 0.80        # порог совпадения шаблона (0.7–0.9; ниже = больше ложных)
 CLICK_INTERVAL = 1.2     # сек между повторными кликами по одной цели
@@ -52,8 +59,10 @@ WALK_DELAY = 2.5         # сек ожидания после первого к�
 SCAN_DELAY = 1.0         # сек между полными сканами экрана
 MONITOR_INDEX = 1        # номер монитора для mss (1 = основной)
 
-# Порядок фарма: сначала все деревья, потом вся руда
-FARM_ORDER = ["tree", "ore"]
+# Приоритет: сначала подбираем лут с земли, потом рубим деревья, потом руду
+FARM_ORDER = ["wood_drop", "ore_drop", "tree", "ore"]
+
+LOOT_TIMEOUT = 15        # сек — максимум на подбор одного лута
 
 PAUSE_KEY = "f8"
 EXIT_KEY = "f9"
@@ -147,43 +156,45 @@ def target_alive(sct, tpl, pos, offset, threshold=CONFIDENCE):
 
 
 def harvest_target(sct, tpl, pos, name):
-    """Кликает по цели, пока она не исчезнет (добыта) или не выйдет таймаут."""
-    print(f"  -> добываем {name} в {pos}")
+    """Кликает по цели, пока она не исчезнет (добыта/подобрана) или таймаут."""
+    is_loot = name in LOOT_TYPES
+    action = "подбираем" if is_loot else "добываем"
+    print(f"  -> {action} {name} в {pos}")
     pyautogui.click(pos[0], pos[1])
     time.sleep(WALK_DELAY)  # персонаж идёт к цели
 
-    deadline = time.time() + TARGET_TIMEOUT
+    deadline = time.time() + (LOOT_TIMEOUT if is_loot else TARGET_TIMEOUT)
     while _state["running"] and time.time() < deadline:
         wait_if_paused()
         if not target_alive(sct, tpl, pos, (0, 0)):
-            print(f"  [OK] {name} добыто")
+            print(f"  [OK] {name} {'подобрано' if is_loot else 'добыто'}")
             return True
-        pyautogui.click(pos[0], pos[1])
+        if not is_loot:  # лут подбирается сам, докликивать не нужно
+            pyautogui.click(pos[0], pos[1])
         time.sleep(CLICK_INTERVAL)
 
     print(f"  [SKIP] таймаут по цели {name}, идём дальше")
     return False
 
 
-def farm_resource(sct, name, tpl, screen_center):
-    """Добывает все цели одного типа на экране. Возвращает сколько добыто."""
-    harvested = 0
-    while _state["running"]:
-        wait_if_paused()
-        screen, offset = grab_screen(sct)
-        targets = find_targets(screen, tpl)
-        if not targets:
-            return harvested
+def pick_next_target(sct, templates, screen_center):
+    """Сканирует экран, возвращает (тип, позиция) самой приоритетной цели.
 
-        # экранные координаты + сортировка по близости к центру (там персонаж)
+    Приоритет по FARM_ORDER: лут всегда подбираем раньше, чем рубим дальше.
+    Среди целей одного типа берём ближайшую к персонажу (центру экрана).
+    """
+    screen, offset = grab_screen(sct)
+    for name in FARM_ORDER:
+        if name not in templates:
+            continue
+        targets = find_targets(screen, templates[name])
+        if not targets:
+            continue
         targets = [(x + offset[0], y + offset[1]) for x, y in targets]
         targets.sort(key=lambda p: (p[0] - screen_center[0]) ** 2
                                    + (p[1] - screen_center[1]) ** 2)
-
-        harvest_target(sct, tpl, targets[0], name)
-        harvested += 1
-        time.sleep(SCAN_DELAY)
-    return harvested
+        return name, targets[0]
+    return None, None
 
 
 def main():
@@ -203,21 +214,21 @@ def main():
     print("Старт через 5 секунд — переключись на окно игры!")
     time.sleep(5)
 
+    stats = {name: 0 for name in FARM_ORDER}
     with mss() as sct:
         while _state["running"]:
-            total = 0
-            for name in FARM_ORDER:
-                if name not in templates:
-                    continue
-                wait_if_paused()
-                count = farm_resource(sct, name, templates[name], screen_center)
-                if count:
-                    print(f"[CYCLE] {name}: добыто {count}")
-                total += count
-
-            if total == 0:
+            wait_if_paused()
+            name, pos = pick_next_target(sct, templates, screen_center)
+            if name is None:
                 print("[IDLE] целей не видно, ждём 10 сек и сканируем снова...")
                 time.sleep(10)
+                continue
+
+            if harvest_target(sct, templates[name], pos, name):
+                stats[name] += 1
+                print("[STATS] " + " | ".join(
+                    f"{k}: {v}" for k, v in stats.items() if v))
+            time.sleep(SCAN_DELAY)
 
 
 if __name__ == "__main__":
