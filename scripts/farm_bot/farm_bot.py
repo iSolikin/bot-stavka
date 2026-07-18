@@ -27,6 +27,10 @@ import sys
 import time
 from pathlib import Path
 
+# чтобы русский текст не превращался в кракозябры в консоли Windows
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import cv2
 import numpy as np
 import pyautogui
@@ -86,13 +90,28 @@ def grab_screen(sct):
     return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR), (mon["left"], mon["top"])
 
 
-def load_template(path: Path):
-    tpl = cv2.imread(str(path), cv2.IMREAD_COLOR)
-    if tpl is None:
-        print(f"[ERROR] не найден шаблон: {path}")
-        print("        Вырежи картинку из игры (Win+Shift+S) и сохрани туда.")
+def load_templates():
+    """Загружает шаблоны. Работает и с одним из двух, если второго нет."""
+    templates = {}
+    for name, path in TEMPLATES.items():
+        tpl = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if tpl is None:
+            print(f"[WARNING] нет шаблона {path.name} — '{name}' фармить не буду.")
+        else:
+            templates[name] = tpl
+
+    if not templates:
+        print()
+        print("[ERROR] Нет ни одного шаблона! Боту не с чем сравнивать экран.")
+        print("Что сделать:")
+        print("  1. Открой игру, нажми Win+Shift+S")
+        print("  2. Выдели рамкой ОДНО дерево (только крону, без лишнего фона)")
+        print("  3. Вставь в Paint (Ctrl+V) и сохрани как:")
+        print(f"       {TEMPLATES['tree']}")
+        print("  4. То же самое с кучкой руды:")
+        print(f"       {TEMPLATES['ore']}")
         sys.exit(1)
-    return tpl
+    return templates
 
 
 def find_targets(screen, tpl, threshold=CONFIDENCE):
@@ -168,7 +187,7 @@ def farm_resource(sct, name, tpl, screen_center):
 
 
 def main():
-    templates = {name: load_template(path) for name, path in TEMPLATES.items()}
+    templates = load_templates()
 
     keyboard.add_hotkey(PAUSE_KEY, _toggle_pause)
     keyboard.add_hotkey(EXIT_KEY, _stop)
@@ -188,6 +207,8 @@ def main():
         while _state["running"]:
             total = 0
             for name in FARM_ORDER:
+                if name not in templates:
+                    continue
                 wait_if_paused()
                 count = farm_resource(sct, name, templates[name], screen_center)
                 if count:
