@@ -55,7 +55,11 @@ LOOT_TYPES = {"wood_drop", "ore_drop"}
 
 CONFIDENCE = 0.80        # порог совпадения шаблона (0.7–0.9; ниже = больше ложных)
 CLICK_INTERVAL = 1.2     # сек между повторными кликами по одной цели
-TARGET_TIMEOUT = 45      # сек — максимум на одну цель (если персонаж застрял)
+TARGET_TIMEOUT = 45      # сек БЕЗ ПРОГРЕССА на одну цель; пока шкала видна
+                         # (рубка идёт) — таймаут продлевается
+TARGET_HARD_CAP = 420    # сек — жёсткий потолок на одну цель
+KEEPALIVE_CLICK = 12     # сек: пока рубим, периодически докликиваем цель,
+                         # чтобы персонаж не бросил недорубленное дерево
 WALK_DELAY = 2.5         # сек ожидания после первого клика (персонаж идёт к цели)
 SCAN_DELAY = 1.0         # сек между полными сканами экрана
 MONITOR_INDEX = 1        # номер монитора для mss (1 = основной)
@@ -258,6 +262,14 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
                 bar_seen = True
                 last_bar = now
                 harvesting = True
+                # рубка идёт — продлеваем таймаут (большие деревья рубятся
+                # дольше 45 сек), но не дольше жёсткого потолка
+                deadline = min(start + TARGET_HARD_CAP,
+                               max(deadline, now + TARGET_TIMEOUT))
+                # и докликиваем, чтобы персонаж не остановился на полпути
+                if now - last_click >= KEEPALIVE_CLICK:
+                    pyautogui.click(pos[0], pos[1])
+                    last_click = now
             elif not bar_seen:
                 # «не бьётся» — только если уже стоим (не идём) и шкалы нет
                 if now - start > NO_BAR_TIMEOUT and now - last_move > 2.5:
