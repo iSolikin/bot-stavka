@@ -77,6 +77,12 @@ NO_BAR_TIMEOUT = 6            # сек: бьём, а шкалы нет -> бро
 BLACKLIST_TTL = 90            # сек: сколько помним небьющиеся цели
 BLACKLIST_RADIUS = 60         # px: радиус «это та же мёртвая цель»
 
+# Детект застревания: если персонаж стоит на месте (карта не двигается),
+# добычи нет и так продолжается STUCK_TIMEOUT сек — бросаем цель и рубим
+# ближайший ресурс (скорее всего именно он перегородил дорогу).
+STUCK_TIMEOUT = 15            # сек без движения = застрял
+MOVE_DIFF_THRESHOLD = 1.5     # средняя разница кадров, выше = «карта едет»
+
 PAUSE_KEY = "f8"
 EXIT_KEY = "f9"
 
@@ -168,6 +174,24 @@ def target_alive(sct, tpl, pos, offset, threshold=CONFIDENCE):
     return res.max() >= threshold
 
 
+def motion_frame(sct, screen_center):
+    """Мини-кадр вокруг персонажа для детекта движения камеры.
+
+    Сам персонаж в центре вырезается (его анимация не считается движением):
+    когда персонаж идёт, камера едет за ним и меняется ВСЯ картинка вокруг.
+    """
+    screen, off = grab_screen(sct)
+    cx, cy = screen_center[0] - off[0], screen_center[1] - off[1]
+    x0, y0 = max(0, cx - 350), max(0, cy - 250)
+    x1 = min(screen.shape[1], cx + 350)
+    y1 = min(screen.shape[0], cy + 250)
+    roi = cv2.cvtColor(screen[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
+    h, w = roi.shape
+    roi[max(0, h // 2 - 120):h // 2 + 120,
+        max(0, w // 2 - 120):w // 2 + 120] = 0
+    return cv2.resize(roi, (w // 4, h // 4)).astype(np.int16)
+
+
 def bar_visible(sct, pos):
     """Видна ли голубая шкала прогресса в области над целью pos."""
     screen, off = grab_screen(sct)
@@ -182,12 +206,20 @@ def bar_visible(sct, pos):
     return int(cv2.countNonZero(mask)) >= BAR_MIN_PIXELS
 
 
-def harvest_target(sct, tpl, pos, name, blacklist):
+def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
     """Кликает по цели, пока она не исчезнет (добыта/подобрана) или таймаут.
+
+    Возвращает статус:
+      "ok"    — добыто/подобрано
+      "dead"  — шкала прогресса не появилась, ресурс не бьётся
+      "stuck" — персонаж застрял на месте (что-то перегородило дорогу)
+      "skip"  — общий таймаут
 
     Для дерева/руды следит за голубой шкалой прогресса: если после кликов
     шкала не появилась за NO_BAR_TIMEOUT сек — ресурс не бьётся, заносим
     его в чёрный список и идём к следующему.
+    Если карта не двигается, добычи нет и так STUCK_TIMEOUT сек подряд —
+    персонаж застрял: бросаем цель, чтобы срубить то, что мешает.
     """
     is_loot = name in LOOT_TYPES
     action = "подбираем" if is_loot else "добываем"
@@ -200,24 +232,39 @@ def harvest_target(sct, tpl, pos, name, blacklist):
     bar_seen = False
     last_bar = 0.0
     last_click = start
+    last_move = start
+    prev_frame = motion_frame(sct, screen_center)
 
     while _state["running"] and time.time() < deadline:
         wait_if_paused()
         if not target_alive(sct, tpl, pos, (0, 0)):
             print(f"  [OK] {name} {'подобрано' if is_loot else 'добыто'}")
-            return True
+            return "ok"
 
+        now = time.time()
+
+        # детект движения камеры (персонаж идёт -> картинка вокруг едет)
+        cur_frame = motion_frame(sct, screen_center)
+        if cur_frame.shape == prev_frame.shape:
+            if np.abs(cur_frame - prev_frame).mean() > MOVE_DIFF_THRESHOLD:
+                last_move = now
+        else:
+            last_move = now
+        prev_frame = cur_frame
+
+        harvesting = False
         if not is_loot:
-            now = time.time()
             if bar_visible(sct, pos):
                 bar_seen = True
                 last_bar = now
+                harvesting = True
             elif not bar_seen:
-                if now - start > NO_BAR_TIMEOUT:
+                # «не бьётся» — только если уже стоим (не идём) и шкалы нет
+                if now - start > NO_BAR_TIMEOUT and now - last_move > 2.5:
                     print(f"  [DEAD] {name} в {pos}: шкалы нет — не бьётся, "
                           f"пропускаем")
                     blacklist.append((pos, now))
-                    return False
+                    return "dead"
                 if now - last_click >= CLICK_INTERVAL:
                     pyautogui.click(pos[0], pos[1])
                     last_click = now
@@ -227,14 +274,21 @@ def harvest_target(sct, tpl, pos, name, blacklist):
                 last_click = now
                 bar_seen = False
 
+        if not harvesting and now - last_move > STUCK_TIMEOUT:
+            print(f"  [STUCK] застряли по пути к {name} в {pos} — "
+                  f"переключаемся на ближайший ресурс")
+            blacklist.append((pos, now))
+            return "stuck"
+
         time.sleep(0.5)
 
     print(f"  [SKIP] таймаут по цели {name}, идём дальше")
     blacklist.append((pos, time.time()))
-    return False
+    return "skip"
 
 
-def pick_next_target(sct, templates, screen_center, preferred, blacklist):
+def pick_next_target(sct, templates, screen_center, preferred, blacklist,
+                     any_nearest=False):
     """Сканирует экран, возвращает (тип, позиция) следующей цели.
 
     Порядок: сначала лут с земли, потом добыча с чередованием — если в
@@ -242,6 +296,9 @@ def pick_next_target(sct, templates, screen_center, preferred, blacklist):
     предпочтительного ресурса на экране нет — берём другой.
     Среди целей одного типа берём ближайшую к персонажу (центру экрана).
     Цели из чёрного списка (небьющиеся) пропускаются.
+
+    any_nearest=True — режим после застревания: берём ближайшую к персонажу
+    цель ЛЮБОГО типа, чтобы срубить то, что перегородило дорогу.
     """
     now = time.time()
     blacklist[:] = [(p, t) for p, t in blacklist if now - t < BLACKLIST_TTL]
@@ -250,18 +307,37 @@ def pick_next_target(sct, templates, screen_center, preferred, blacklist):
         return any((pos[0] - p[0]) ** 2 + (pos[1] - p[1]) ** 2
                    < BLACKLIST_RADIUS ** 2 for p, _ in blacklist)
 
-    rotation = [preferred] + [n for n in HARVEST_ROTATION if n != preferred]
+    def dist(p):
+        return (p[0] - screen_center[0]) ** 2 + (p[1] - screen_center[1]) ** 2
+
     screen, offset = grab_screen(sct)
+
+    def found(name):
+        targets = find_targets(screen, templates[name])
+        targets = [(x + offset[0], y + offset[1]) for x, y in targets]
+        return [p for p in targets if not is_dead(p)]
+
+    if any_nearest:
+        # режим «расчистить дорогу»: ближайшая цель любого типа
+        best = None
+        for name in LOOT_ORDER + HARVEST_ROTATION:
+            if name not in templates:
+                continue
+            for p in found(name):
+                if best is None or dist(p) < dist(best[1]):
+                    best = (name, p)
+        if best:
+            return best
+        return None, None
+
+    rotation = [preferred] + [n for n in HARVEST_ROTATION if n != preferred]
     for name in LOOT_ORDER + rotation:
         if name not in templates:
             continue
-        targets = find_targets(screen, templates[name])
-        targets = [(x + offset[0], y + offset[1]) for x, y in targets]
-        targets = [p for p in targets if not is_dead(p)]
+        targets = found(name)
         if not targets:
             continue
-        targets.sort(key=lambda p: (p[0] - screen_center[0]) ** 2
-                                   + (p[1] - screen_center[1]) ** 2)
+        targets.sort(key=dist)
         return name, targets[0]
     return None, None
 
@@ -286,20 +362,29 @@ def main():
     stats = {name: 0 for name in FARM_ORDER}
     preferred = HARVEST_ROTATION[0]  # с чего начинаем добычу
     blacklist = []                   # небьющиеся цели: [(pos, время)]
+    clear_blocker = False            # после застревания рубим ближайшее
     with mss() as sct:
         while _state["running"]:
             wait_if_paused()
             name, pos = pick_next_target(sct, templates, screen_center,
-                                         preferred, blacklist)
+                                         preferred, blacklist,
+                                         any_nearest=clear_blocker)
             if name is None:
                 print("[IDLE] целей не видно, ждём 10 сек и сканируем снова...")
+                clear_blocker = False
                 time.sleep(10)
                 continue
 
-            if harvest_target(sct, templates[name], pos, name, blacklist):
+            status = harvest_target(sct, templates[name], pos, name,
+                                    blacklist, screen_center)
+            if status == "ok":
                 stats[name] += 1
                 print("[STATS] " + " | ".join(
                     f"{k}: {v}" for k, v in stats.items() if v))
+
+            # застряли -> следующей целью берём ближайший ресурс любого
+            # типа: скорее всего именно он и перегородил дорогу
+            clear_blocker = (status == "stuck")
 
             if name in HARVEST_ROTATION:
                 # чередование: после дерева идём за рудой и наоборот
