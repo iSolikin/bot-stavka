@@ -78,8 +78,13 @@ BAR_HSV_LO = (90, 130, 170)   # HSV-диапазон цвета шкалы (го
 BAR_HSV_HI = (99, 190, 255)
 BAR_MIN_PIXELS = 25           # столько голубых пикселей = «шкала видна»
 NO_BAR_TIMEOUT = 6            # сек: бьём, а шкалы нет -> бросаем цель
-BLACKLIST_TTL = 90            # сек: сколько помним небьющиеся цели
+BLACKLIST_TTL = 90            # сек: чёрный список после застревания/таймаута
+BLACKLIST_DEAD_TTL = 600      # сек: список для «не бьётся» (нужен уровень выше)
 BLACKLIST_RADIUS = 60         # px: радиус «это та же мёртвая цель»
+
+# Ресурс не того уровня выглядит иначе по цвету (серый камень vs тёмная
+# руда) — совпадение по форме отсекаем сверкой среднего цвета с шаблоном.
+COLOR_TOLERANCE = 28          # макс. расхождение среднего цвета (по каналу)
 
 # Детект застревания: если персонаж стоит на месте (карта не двигается),
 # добычи нет и так продолжается STUCK_TIMEOUT сек — бросаем цель и рубим
@@ -147,8 +152,13 @@ def load_templates():
 
 
 def find_targets(screen, tpl, threshold=CONFIDENCE):
-    """Все совпадения шаблона на экране -> список центров (x, y), лучшие первыми."""
+    """Все совпадения шаблона на экране -> список центров (x, y), лучшие первыми.
+
+    Совпадения, похожие по форме, но другого цвета (например, камень
+    старшего уровня — серый вместо тёмного), отбрасываются по среднему цвету.
+    """
     h, w = tpl.shape[:2]
+    tpl_mean = tpl.reshape(-1, 3).mean(axis=0)
     res = cv2.matchTemplate(screen, tpl, cv2.TM_CCOEFF_NORMED)
     ys, xs = np.where(res >= threshold)
     candidates = sorted(zip(xs, ys), key=lambda p: res[p[1], p[0]], reverse=True)
@@ -157,8 +167,14 @@ def find_targets(screen, tpl, threshold=CONFIDENCE):
     for x, y in candidates:
         cx, cy = x + w // 2, y + h // 2
         # простая NMS: пропускаем точки рядом с уже найденными
-        if all(abs(cx - px) > w * 0.6 or abs(cy - py) > h * 0.6 for px, py in centers):
-            centers.append((cx, cy))
+        if any(abs(cx - px) <= w * 0.6 and abs(cy - py) <= h * 0.6
+               for px, py in centers):
+            continue
+        # сверка цвета: не тот оттенок = не тот ресурс, пропускаем
+        region_mean = screen[y:y + h, x:x + w].reshape(-1, 3).mean(axis=0)
+        if np.abs(region_mean - tpl_mean).max() > COLOR_TOLERANCE:
+            continue
+        centers.append((cx, cy))
     return centers
 
 
@@ -273,9 +289,10 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
             elif not bar_seen:
                 # «не бьётся» — только если уже стоим (не идём) и шкалы нет
                 if now - start > NO_BAR_TIMEOUT and now - last_move > 2.5:
-                    print(f"  [DEAD] {name} в {pos}: шкалы нет — не бьётся, "
-                          f"пропускаем")
-                    blacklist.append((pos, now))
+                    print(f"  [DEAD] {name} в {pos}: шкалы нет — не бьётся "
+                          f"(мал уровень?), пропускаем на "
+                          f"{BLACKLIST_DEAD_TTL // 60} мин")
+                    blacklist.append((pos, now + BLACKLIST_DEAD_TTL))
                     return "dead"
                 if now - last_click >= CLICK_INTERVAL:
                     pyautogui.click(pos[0], pos[1])
@@ -289,13 +306,13 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
         if not harvesting and now - last_move > STUCK_TIMEOUT:
             print(f"  [STUCK] застряли по пути к {name} в {pos} — "
                   f"переключаемся на ближайший ресурс")
-            blacklist.append((pos, now))
+            blacklist.append((pos, now + BLACKLIST_TTL))
             return "stuck"
 
         time.sleep(0.5)
 
     print(f"  [SKIP] таймаут по цели {name}, идём дальше")
-    blacklist.append((pos, time.time()))
+    blacklist.append((pos, time.time() + BLACKLIST_TTL))
     return "skip"
 
 
@@ -313,7 +330,7 @@ def pick_next_target(sct, templates, screen_center, preferred, blacklist,
     цель ЛЮБОГО типа, чтобы срубить то, что перегородило дорогу.
     """
     now = time.time()
-    blacklist[:] = [(p, t) for p, t in blacklist if now - t < BLACKLIST_TTL]
+    blacklist[:] = [(p, expires) for p, expires in blacklist if now < expires]
 
     def is_dead(pos):
         return any((pos[0] - p[0]) ** 2 + (pos[1] - p[1]) ** 2
