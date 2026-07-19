@@ -215,20 +215,40 @@ def game_window_active():
 
 
 def focus_game_window():
-    """Возвращает окно игры на передний план (трюк minimize/restore)."""
+    """Возвращает окно игры на передний план (несколько способов)."""
     wins = [w for w in gw.getAllWindows() if GAME_WINDOW_TITLE in w.title]
     if not wins:
         print(f"[FOCUS] окно '{GAME_WINDOW_TITLE}' не найдено — игра закрыта?")
         return False
+    w = wins[0]
+
+    # способ 1: SetForegroundWindow (нажатый Alt снимает блокировку Windows)
     try:
         pyautogui.press("altleft")
-        wins[0].minimize()
-        time.sleep(0.5)
-        wins[0].restore()
+        w.activate()
         time.sleep(1.5)
-    except Exception as e:
-        print(f"[FOCUS] не получилось поднять окно: {e}")
-        return False
+    except Exception:
+        pass
+    if game_window_active():
+        return True
+
+    # способ 2: свернуть/развернуть
+    try:
+        w.minimize()
+        time.sleep(0.5)
+        w.restore()
+        time.sleep(1.5)
+    except Exception:
+        pass
+    if game_window_active():
+        return True
+
+    # способ 3: клик внутрь окна игры (правее центра, вне игровых кнопок)
+    try:
+        pyautogui.click(w.right - 250, w.top + 350)
+        time.sleep(1.5)
+    except Exception:
+        pass
     return game_window_active()
 
 
