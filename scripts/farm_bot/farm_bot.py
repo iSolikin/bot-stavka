@@ -37,6 +37,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 import cv2
 import numpy as np
 import pyautogui
+import pygetwindow as gw
 import keyboard
 from mss import mss
 
@@ -91,6 +92,16 @@ COLOR_TOLERANCE = 28          # макс. расхождение среднег�
 # ближайший ресурс (скорее всего именно он перегородил дорогу).
 STUCK_TIMEOUT = 15            # сек без движения = застрял
 MOVE_DIFF_THRESHOLD = 1.5     # средняя разница кадров, выше = «карта едет»
+
+# Серверный рассинхрон: шкала видна, но не двигается. Лечится только
+# перезаходом, так что цель просто бросаем и идём к другой.
+FROZEN_BAR_TIMEOUT = 35       # сек: заполнение шкалы не меняется = зависло
+BAR_PIXEL_TOLERANCE = 5       # на сколько пикселей должно меняться заполнение
+
+# Бот кликает только когда окно игры в фокусе. Если фокус ушёл (свернул,
+# переключился) — ждём WINDOW_GRACE сек и сами возвращаем окно наверх.
+GAME_WINDOW_TITLE = "Kingdom Realms"
+WINDOW_GRACE = 45             # сек ждать, пока юзер сам вернётся в игру
 
 PAUSE_KEY = "f8"
 EXIT_KEY = "f9"
@@ -194,6 +205,33 @@ def target_alive(sct, tpl, pos, offset, threshold=CONFIDENCE):
     return res.max() >= threshold
 
 
+def game_window_active():
+    """Игра сейчас на переднем плане? Кликаем только когда да."""
+    try:
+        w = gw.getActiveWindow()
+        return w is not None and GAME_WINDOW_TITLE in w.title
+    except Exception:
+        return True  # не смогли проверить — не блокируем работу
+
+
+def focus_game_window():
+    """Возвращает окно игры на передний план (трюк minimize/restore)."""
+    wins = [w for w in gw.getAllWindows() if GAME_WINDOW_TITLE in w.title]
+    if not wins:
+        print(f"[FOCUS] окно '{GAME_WINDOW_TITLE}' не найдено — игра закрыта?")
+        return False
+    try:
+        pyautogui.press("altleft")
+        wins[0].minimize()
+        time.sleep(0.5)
+        wins[0].restore()
+        time.sleep(1.5)
+    except Exception as e:
+        print(f"[FOCUS] не получилось поднять окно: {e}")
+        return False
+    return game_window_active()
+
+
 def motion_frame(sct, screen_center):
     """Мини-кадр вокруг персонажа для детекта движения камеры.
 
@@ -212,18 +250,22 @@ def motion_frame(sct, screen_center):
     return cv2.resize(roi, (w // 4, h // 4)).astype(np.int16)
 
 
-def bar_visible(sct, pos):
-    """Видна ли голубая шкала прогресса в области над целью pos."""
+def bar_pixels(sct, pos):
+    """Сколько пикселей голубой шкалы видно над целью pos.
+
+    0 или мало = шкалы нет; заполнение шкалы меняется по мере добычи,
+    поэтому по этому же числу ловим «замёрзшую» шкалу (рассинхрон).
+    """
     screen, off = grab_screen(sct)
     x, y = pos[0] - off[0], pos[1] - off[1]
     x0, y0 = max(0, x - 90), max(0, y - 150)
     x1, y1 = min(screen.shape[1], x + 90), max(1, y - 10)
     roi = screen[y0:y1, x0:x1]
     if roi.size == 0:
-        return False
+        return 0
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, np.array(BAR_HSV_LO), np.array(BAR_HSV_HI))
-    return int(cv2.countNonZero(mask)) >= BAR_MIN_PIXELS
+    return int(cv2.countNonZero(mask))
 
 
 def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
@@ -254,9 +296,15 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
     last_click = start
     last_move = start
     prev_frame = motion_frame(sct, screen_center)
+    prev_fill = 0
+    fill_changed_at = start
 
     while _state["running"] and time.time() < deadline:
         wait_if_paused()
+        if not game_window_active():
+            # окно игры ушло с переднего плана — не кликаем, просто ждём
+            time.sleep(2)
+            continue
         if not target_alive(sct, tpl, pos, (0, 0)):
             print(f"  [OK] {name} {'подобрано' if is_loot else 'добыто'}")
             return "ok"
@@ -274,10 +322,22 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
 
         harvesting = False
         if not is_loot:
-            if bar_visible(sct, pos):
+            fill = bar_pixels(sct, pos)
+            if fill >= BAR_MIN_PIXELS:
                 bar_seen = True
                 last_bar = now
                 harvesting = True
+                # следим за заполнением шкалы: если оно замёрзло —
+                # это серверный рассинхрон, цель бесполезна
+                if abs(fill - prev_fill) > BAR_PIXEL_TOLERANCE:
+                    prev_fill = fill
+                    fill_changed_at = now
+                elif now - fill_changed_at > FROZEN_BAR_TIMEOUT:
+                    print(f"  [FROZEN] {name} в {pos}: шкала зависла "
+                          f"(лаг сервера) — бросаем на "
+                          f"{BLACKLIST_DEAD_TTL // 60} мин")
+                    blacklist.append((pos, now + BLACKLIST_DEAD_TTL))
+                    return "skip"
                 # рубка идёт — продлеваем таймаут (большие деревья рубятся
                 # дольше 45 сек), но не дольше жёсткого потолка
                 deadline = min(start + TARGET_HARD_CAP,
@@ -385,16 +445,33 @@ def main():
     print(f" {PAUSE_KEY.upper()} — пауза | {EXIT_KEY.upper()} — выход | "
           f"мышь в левый верхний угол — аварийный стоп")
     print("=" * 55)
-    print("Старт через 5 секунд — переключись на окно игры!")
+    print("Старт через 5 секунд — поднимаю окно игры...")
     time.sleep(5)
+    if not game_window_active():
+        focus_game_window()
 
     stats = {name: 0 for name in FARM_ORDER}
     preferred = HARVEST_ROTATION[0]  # с чего начинаем добычу
     blacklist = []                   # небьющиеся цели: [(pos, время)]
     clear_blocker = False            # после застревания рубим ближайшее
+    window_lost_since = None         # с какого момента игра не в фокусе
     with mss() as sct:
         while _state["running"]:
             wait_if_paused()
+
+            if not game_window_active():
+                now = time.time()
+                if window_lost_since is None:
+                    window_lost_since = now
+                    print("[WAIT] окно игры не в фокусе — не кликаю, жду...")
+                elif now - window_lost_since > WINDOW_GRACE:
+                    print("[FOCUS] возвращаю окно игры на передний план")
+                    focus_game_window()
+                    window_lost_since = None
+                time.sleep(3)
+                continue
+            window_lost_since = None
+
             name, pos = pick_next_target(sct, templates, screen_center,
                                          preferred, blacklist,
                                          any_nearest=clear_blocker)
