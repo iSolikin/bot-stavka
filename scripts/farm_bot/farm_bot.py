@@ -119,6 +119,11 @@ OUTPOST_TEMPLATE = BASE_DIR / "templates" / "outpost.png"
 GAME_WINDOW_TITLE = "Kingdom Realms"
 WINDOW_GRACE = 45             # сек ждать, пока юзер сам вернётся в игру
 
+# Если целей на экране нет (всё вырублено или в чёрном списке) — не стоим
+# на месте, а идём разведывать карту по кругу направлений.
+EXPLORE_POINTS = [(1500, 350), (450, 300), (700, 860), (1550, 800)]
+IDLE_SCANS_BEFORE_EXPLORE = 2  # сколько пустых сканов терпим перед разведкой
+
 PAUSE_KEY = "f8"
 EXIT_KEY = "f9"
 
@@ -446,6 +451,7 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
     prev_frame = motion_frame(sct, screen_center)
     prev_fill = 0
     fill_changed_at = start
+    last_work_log = start
 
     while _state["running"] and time.time() < deadline:
         wait_if_paused()
@@ -499,6 +505,10 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
                 # длинная цель: продлеваем таймаут, пока есть прогресс
                 deadline = min(start + TARGET_HARD_CAP,
                                max(deadline, now + TARGET_TIMEOUT))
+                if now - last_work_log > 30:
+                    log.info(f"  [WORK] {name}: добыча идёт "
+                             f"({int(now - start)} сек)...")
+                    last_work_log = now
             elif standing and now - last_click > RECLICK_COOLDOWN:
                 # пришли, стоим, а добыча не началась (или прервалась)
                 if clicks < MAX_CLICKS_PER_TARGET:
@@ -607,6 +617,8 @@ def main():
     window_lost_since = None         # с какого момента игра не в фокусе
     frozen_streak = 0                # подряд замёрзших шкал (рассинхрон)
     recoveries = 0                   # восстановлений без единой добычи
+    idle_scans = 0                   # подряд пустых сканов
+    explore_idx = 0                  # какое направление разведки следующее
     with mss() as sct:
         while _state["running"]:
             wait_if_paused()
@@ -628,10 +640,22 @@ def main():
                                          preferred, blacklist,
                                          any_nearest=clear_blocker)
             if name is None:
-                log.info("[IDLE] целей не видно, ждём 10 сек и сканируем снова...")
                 clear_blocker = False
-                time.sleep(10)
+                idle_scans += 1
+                if idle_scans >= IDLE_SCANS_BEFORE_EXPLORE:
+                    px, py = EXPLORE_POINTS[explore_idx % len(EXPLORE_POINTS)]
+                    explore_idx += 1
+                    idle_scans = 0
+                    log.info(f"[EXPLORE] целей не видно — разведываем "
+                             f"карту, идём в ({px}, {py})")
+                    pyautogui.click(px, py)
+                    wait_camera_still(sct, screen_center)
+                else:
+                    log.info("[IDLE] целей не видно, ждём 10 сек и "
+                             "сканируем снова...")
+                    time.sleep(10)
                 continue
+            idle_scans = 0
 
             status = harvest_target(sct, templates[name], pos, name,
                                     blacklist, screen_center)
