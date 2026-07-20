@@ -55,12 +55,15 @@ TEMPLATES = {
 LOOT_TYPES = {"wood_drop", "ore_drop"}
 
 CONFIDENCE = 0.80        # порог совпадения шаблона (0.7–0.9; ниже = больше ложных)
-CLICK_INTERVAL = 1.2     # сек между повторными кликами по одной цели
 TARGET_TIMEOUT = 45      # сек БЕЗ ПРОГРЕССА на одну цель; пока шкала видна
                          # (рубка идёт) — таймаут продлевается
 TARGET_HARD_CAP = 420    # сек — жёсткий потолок на одну цель
-KEEPALIVE_CLICK = 12     # сек: пока рубим, периодически докликиваем цель,
-                         # чтобы персонаж не бросил недорубленное дерево
+
+# ВАЖНО: лишние клики сбивают добычу! Один клик — персонаж сам идёт и сам
+# добывает до конца. Второй клик разрешён только если персонаж пришёл,
+# стоит, а добыча так и не началась.
+MAX_CLICKS_PER_TARGET = 2
+RECLICK_COOLDOWN = 5     # сек после клика, раньше которых второй не даём
 WALK_DELAY = 2.5         # сек ожидания после первого клика (персонаж идёт к цели)
 SCAN_DELAY = 1.0         # сек между полными сканами экрана
 MONITOR_INDEX = 1        # номер монитора для mss (1 = основной)
@@ -289,7 +292,10 @@ def bar_pixels(sct, pos):
 
 
 def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
-    """Кликает по цели, пока она не исчезнет (добыта/подобрана) или таймаут.
+    """Один клик по цели — персонаж сам идёт и добывает; мы ждём и следим.
+
+    Максимум MAX_CLICKS_PER_TARGET кликов: постоянное кликанье СБИВАЕТ
+    добычу. Второй клик — только если пришли, стоим, а добыча не началась.
 
     Возвращает статус:
       "ok"    — добыто/подобрано
@@ -307,13 +313,14 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
     action = "подбираем" if is_loot else "добываем"
     print(f"  -> {action} {name} в {pos}")
     pyautogui.click(pos[0], pos[1])
+    clicks = 1
+    last_click = time.time()
     time.sleep(WALK_DELAY)  # персонаж идёт к цели
 
     start = time.time()
     deadline = start + (LOOT_TIMEOUT if is_loot else TARGET_TIMEOUT)
     bar_seen = False
     last_bar = 0.0
-    last_click = start
     last_move = start
     prev_frame = motion_frame(sct, screen_center)
     prev_fill = 0
@@ -326,7 +333,8 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
             time.sleep(2)
             continue
         if not target_alive(sct, tpl, pos, (0, 0)):
-            print(f"  [OK] {name} {'подобрано' if is_loot else 'добыто'}")
+            print(f"  [OK] {name} {'подобрано' if is_loot else 'добыто'} "
+                  f"(кликов: {clicks})")
             return "ok"
 
         now = time.time()
@@ -339,16 +347,17 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
         else:
             last_move = now
         prev_frame = cur_frame
+        standing = now - last_move > 2.5  # персонаж стоит на месте
 
         harvesting = False
         if not is_loot:
             fill = bar_pixels(sct, pos)
             if fill >= BAR_MIN_PIXELS:
+                # добыча идёт — НИКАКИХ кликов, просто ждём и следим
                 bar_seen = True
                 last_bar = now
                 harvesting = True
-                # следим за заполнением шкалы: если оно замёрзло —
-                # это серверный рассинхрон, цель бесполезна
+                # шкала замёрзла = серверный рассинхрон, цель бесполезна
                 if abs(fill - prev_fill) > BAR_PIXEL_TOLERANCE:
                     prev_fill = fill
                     fill_changed_at = now
@@ -358,30 +367,22 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
                           f"{BLACKLIST_DEAD_TTL // 60} мин")
                     blacklist.append((pos, now + BLACKLIST_DEAD_TTL))
                     return "skip"
-                # рубка идёт — продлеваем таймаут (большие деревья рубятся
-                # дольше 45 сек), но не дольше жёсткого потолка
+                # длинная цель: продлеваем таймаут, пока есть прогресс
                 deadline = min(start + TARGET_HARD_CAP,
                                max(deadline, now + TARGET_TIMEOUT))
-                # и докликиваем, чтобы персонаж не остановился на полпути
-                if now - last_click >= KEEPALIVE_CLICK:
+            elif standing and now - last_click > RECLICK_COOLDOWN:
+                # пришли, стоим, а добыча не началась (или прервалась)
+                if clicks < MAX_CLICKS_PER_TARGET:
+                    print(f"  [CLICK-2] добыча не началась — кликаем ещё раз")
                     pyautogui.click(pos[0], pos[1])
+                    clicks += 1
                     last_click = now
-            elif not bar_seen:
-                # «не бьётся» — только если уже стоим (не идём) и шкалы нет
-                if now - start > NO_BAR_TIMEOUT and now - last_move > 2.5:
+                elif now - max(last_bar, start) > NO_BAR_TIMEOUT:
                     print(f"  [DEAD] {name} в {pos}: шкалы нет — не бьётся "
                           f"(мал уровень?), пропускаем на "
                           f"{BLACKLIST_DEAD_TTL // 60} мин")
                     blacklist.append((pos, now + BLACKLIST_DEAD_TTL))
                     return "dead"
-                if now - last_click >= CLICK_INTERVAL:
-                    pyautogui.click(pos[0], pos[1])
-                    last_click = now
-            elif now - last_bar > 4:
-                # шкала была, но пропала, а цель жива — толкнём ещё раз
-                pyautogui.click(pos[0], pos[1])
-                last_click = now
-                bar_seen = False
 
         if not harvesting and now - last_move > STUCK_TIMEOUT:
             print(f"  [STUCK] застряли по пути к {name} в {pos} — "
