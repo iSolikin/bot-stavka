@@ -97,10 +97,13 @@ COLOR_TOLERANCE = 28          # макс. расхождение среднег�
 STUCK_TIMEOUT = 15            # сек без движения = застрял
 MOVE_DIFF_THRESHOLD = 1.5     # средняя разница кадров, выше = «карта едет»
 
-# Серверный рассинхрон: шкала видна, но не двигается. Лечится только
-# перезаходом, так что цель просто бросаем и идём к другой.
+# Серверный рассинхрон: шкала видна, но не двигается. Единичный случай —
+# бросаем цель; несколько подряд — обновляем страницу (F5 лечит рассинхрон,
+# игра загружается обратно прямо в зону фарма).
 FROZEN_BAR_TIMEOUT = 20       # сек: заполнение шкалы не меняется = зависло
 BAR_PIXEL_TOLERANCE = 5       # на сколько пикселей должно меняться заполнение
+FROZEN_STREAK_RELOAD = 3      # столько FROZEN подряд = жмём F5
+RELOAD_WAIT = 15              # сек ждать перезагрузку страницы
 
 # Бот кликает только когда окно игры в фокусе. Если фокус ушёл (свернул,
 # переключился) — ждём WINDOW_GRACE сек и сами возвращаем окно наверх.
@@ -271,6 +274,20 @@ def focus_game_window():
     return game_window_active()
 
 
+def reload_game(blacklist):
+    """Обновляет страницу игры (F5) — лечит серверный рассинхрон.
+
+    Игра после перезагрузки попадает обратно прямо в зону фарма.
+    Чёрный список чистим: после ресинка цели снова рабочие.
+    """
+    log.info("[RELOAD] похоже на рассинхрон сервера — обновляю страницу (F5)")
+    if not game_window_active():
+        focus_game_window()
+    pyautogui.press("f5")
+    time.sleep(RELOAD_WAIT)
+    blacklist.clear()
+
+
 def motion_frame(sct, screen_center):
     """Мини-кадр вокруг персонажа для детекта движения камеры.
 
@@ -383,7 +400,7 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
                           f"(лаг сервера) — бросаем на "
                           f"{BLACKLIST_DEAD_TTL // 60} мин")
                     blacklist.append((pos, now + BLACKLIST_DEAD_TTL))
-                    return "skip"
+                    return "frozen"
                 # длинная цель: продлеваем таймаут, пока есть прогресс
                 deadline = min(start + TARGET_HARD_CAP,
                                max(deadline, now + TARGET_TIMEOUT))
@@ -493,6 +510,7 @@ def main():
     blacklist = []                   # небьющиеся цели: [(pos, время)]
     clear_blocker = False            # после застревания рубим ближайшее
     window_lost_since = None         # с какого момента игра не в фокусе
+    frozen_streak = 0                # подряд замёрзших шкал (рассинхрон)
     with mss() as sct:
         while _state["running"]:
             wait_if_paused()
@@ -523,8 +541,14 @@ def main():
                                     blacklist, screen_center)
             if status == "ok":
                 stats[name] += 1
+                frozen_streak = 0
                 log.info("[STATS] " + " | ".join(
                     f"{k}: {v}" for k, v in stats.items() if v))
+            elif status == "frozen":
+                frozen_streak += 1
+                if frozen_streak >= FROZEN_STREAK_RELOAD:
+                    reload_game(blacklist)
+                    frozen_streak = 0
 
             # застряли -> следующей целью берём ближайший ресурс любого
             # типа: скорее всего именно он и перегородил дорогу
