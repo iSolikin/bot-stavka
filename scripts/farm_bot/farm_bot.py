@@ -58,7 +58,7 @@ LOOT_TYPES = {"wood_drop", "ore_drop"}
 CONFIDENCE = 0.80        # порог совпадения шаблона (0.7–0.9; ниже = больше ложных)
 TARGET_TIMEOUT = 45      # сек БЕЗ ПРОГРЕССА на одну цель; пока шкала видна
                          # (рубка идёт) — таймаут продлевается
-TARGET_HARD_CAP = 420    # сек — жёсткий потолок на одну цель
+TARGET_HARD_CAP = 180    # сек — жёсткий потолок на одну цель
 
 # ВАЖНО: лишние клики сбивают добычу! Один клик — персонаж сам идёт и сам
 # добывает до конца. Второй клик разрешён только если персонаж пришёл,
@@ -362,6 +362,30 @@ def motion_frame(sct, screen_center):
     return cv2.resize(roi, (w // 4, h // 4)).astype(np.int16)
 
 
+def wait_camera_still(sct, screen_center, timeout=15):
+    """Ждёт, пока камера остановится (персонаж дошёл до места).
+
+    Нужно после [MOVED]: если сканировать на ходу, ближайшая цель
+    меняется каждую секунду и персонаж мечется между целями.
+    """
+    prev = motion_frame(sct, screen_center)
+    still_since = None
+    end = time.time() + timeout
+    while _state["running"] and time.time() < end:
+        time.sleep(0.4)
+        cur = motion_frame(sct, screen_center)
+        moving = (cur.shape != prev.shape
+                  or np.abs(cur - prev).mean() > MOVE_DIFF_THRESHOLD)
+        prev = cur
+        if moving:
+            still_since = None
+        elif still_since is None:
+            still_since = time.time()
+        elif time.time() - still_since >= 1.2:
+            return True
+    return False
+
+
 def bar_pixels(sct, pos):
     """Сколько пикселей голубой шкалы видно над целью pos.
 
@@ -404,12 +428,19 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
     log.info(f"  -> {action} {name} в {pos}")
     pyautogui.click(pos[0], pos[1])
     clicks = 1
+    bar_seen = False
     last_click = time.time()
-    time.sleep(WALK_DELAY)  # персонаж идёт к цели
+
+    # персонаж идёт к цели; по пути уже поглядываем на шкалу, чтобы не
+    # пропустить быструю добычу (мелкие деревья умирают за пару секунд)
+    walk_end = time.time() + WALK_DELAY
+    while _state["running"] and time.time() < walk_end:
+        if not is_loot and bar_pixels(sct, pos) >= BAR_MIN_PIXELS:
+            bar_seen = True
+        time.sleep(0.4)
 
     start = time.time()
     deadline = start + (LOOT_TIMEOUT if is_loot else TARGET_TIMEOUT)
-    bar_seen = False
     last_bar = 0.0
     last_move = start
     prev_frame = motion_frame(sct, screen_center)
@@ -422,12 +453,20 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
             # окно игры ушло с переднего плана — не кликаем, просто ждём
             time.sleep(2)
             continue
-        if not target_alive(sct, tpl, pos, (0, 0)):
-            log.info(f"  [OK] {name} {'подобрано' if is_loot else 'добыто'} "
-                  f"(кликов: {clicks})")
-            return "ok"
 
         now = time.time()
+        if not target_alive(sct, tpl, pos, (0, 0)):
+            # цель пропала с этой точки экрана. Это добыча ТОЛЬКО если
+            # камера стояла. Если персонаж шёл — картинка просто уехала
+            # вместе с камерой, и «исчезновение» ложное.
+            camera_moving = now - last_move < 1.2
+            if not camera_moving and (is_loot or bar_seen):
+                log.info(f"  [OK] {name} "
+                         f"{'подобрано' if is_loot else 'добыто'} "
+                         f"(кликов: {clicks})")
+                return "ok"
+            log.info(f"  [MOVED] {name}: карта сдвинулась — пересканирую")
+            return "moved"
 
         # детект движения камеры (персонаж идёт -> картинка вокруг едет)
         cur_frame = motion_frame(sct, screen_center)
@@ -617,6 +656,13 @@ def main():
             # застряли -> следующей целью берём ближайший ресурс любого
             # типа: скорее всего именно он и перегородил дорогу
             clear_blocker = (status == "stuck")
+
+            if status == "moved":
+                # персонаж ещё в пути — ждём, пока он дойдёт (камера
+                # встанет), и только потом сканируем: иначе «ближайшая»
+                # цель меняется на ходу и персонаж мечется
+                wait_camera_still(sct, screen_center)
+                continue
 
             if name in HARVEST_ROTATION:
                 # чередование: после дерева идём за рудой и наоборот
