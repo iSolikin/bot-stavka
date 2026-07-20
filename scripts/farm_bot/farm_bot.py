@@ -102,8 +102,17 @@ MOVE_DIFF_THRESHOLD = 1.5     # средняя разница кадров, вы
 # игра загружается обратно прямо в зону фарма).
 FROZEN_BAR_TIMEOUT = 20       # сек: заполнение шкалы не меняется = зависло
 BAR_PIXEL_TOLERANCE = 5       # на сколько пикселей должно меняться заполнение
-FROZEN_STREAK_RELOAD = 3      # столько FROZEN подряд = жмём F5
+FROZEN_STREAK_RELOAD = 2      # столько FROZEN подряд = жмём F5
 RELOAD_WAIT = 15              # сек ждать перезагрузку страницы
+
+# Если F5 не помог (снова серия FROZEN без единой добычи) — делаем полный
+# перезаход в зону: Return to Kingdom -> Raids -> Adventure Outpost.
+# Это лечит застрявшего персонажа (баг игры «застрял в дереве/камне»).
+RETURN_BTN = (1827, 996)      # кнопка Return to Kingdom (низ-право зоны)
+RAIDS_BTN = (1688, 982)       # иконка Raids на нижней панели королевства
+CLAIM_BTN = (959, 817)        # Claim All Items в окне «While You Were Away»
+OUTPOST_FALLBACK = (1050, 575)  # запасная точка клика по аванпосту
+OUTPOST_TEMPLATE = BASE_DIR / "templates" / "outpost.png"
 
 # Бот кликает только когда окно игры в фокусе. Если фокус ушёл (свернул,
 # переключился) — ждём WINDOW_GRACE сек и сами возвращаем окно наверх.
@@ -274,18 +283,65 @@ def focus_game_window():
     return game_window_active()
 
 
-def reload_game(blacklist):
+def reload_game():
     """Обновляет страницу игры (F5) — лечит серверный рассинхрон.
 
     Игра после перезагрузки попадает обратно прямо в зону фарма.
-    Чёрный список чистим: после ресинка цели снова рабочие.
+    Чёрный список НЕ чистим: если эти цели были битые, пусть остаются
+    в игноре — бот попробует другие.
     """
     log.info("[RELOAD] похоже на рассинхрон сервера — обновляю страницу (F5)")
     if not game_window_active():
         focus_game_window()
     pyautogui.press("f5")
     time.sleep(RELOAD_WAIT)
-    blacklist.clear()
+
+
+def reenter_zone(sct, blacklist):
+    """Полный перезаход: Return to Kingdom -> Raids -> Adventure Outpost.
+
+    Лечит игровой баг «персонаж застрял в дереве/камне», который не
+    лечится обновлением страницы (позиция хранится на сервере, но
+    перезаход её сбрасывает). Проверено вручную.
+    """
+    log.info("[REENTER] F5 не помогает — перезахожу в зону через королевство")
+    if not game_window_active():
+        focus_game_window()
+
+    pyautogui.click(RETURN_BTN[0], RETURN_BTN[1])
+    time.sleep(6)
+
+    # окно «While You Were Away» появляется не всегда — ищем оранжевую
+    # кнопку Claim All Items по цвету и жмём, если она есть
+    screen, _ = grab_screen(sct)
+    btn = screen[805:830, 870:1050].reshape(-1, 3).mean(axis=0)  # BGR
+    if btn[2] > 130 and btn[0] < 90:
+        log.info("[REENTER] забираю накопленные ресурсы (Claim All Items)")
+        pyautogui.click(CLAIM_BTN[0], CLAIM_BTN[1])
+        time.sleep(2.5)
+
+    pyautogui.click(RAIDS_BTN[0], RAIDS_BTN[1])
+    time.sleep(4)
+
+    # Adventure Outpost ищем по шаблону, фиксированная точка — запасной путь
+    clicked = False
+    outpost = cv2.imread(str(OUTPOST_TEMPLATE))
+    if outpost is not None:
+        screen, off = grab_screen(sct)
+        res = cv2.matchTemplate(screen, outpost, cv2.TM_CCOEFF_NORMED)
+        _, mx, _, loc = cv2.minMaxLoc(res)
+        if mx >= 0.70:
+            h, w = outpost.shape[:2]
+            pyautogui.click(loc[0] + w // 2 + off[0],
+                            loc[1] + h // 2 + off[1])
+            clicked = True
+        else:
+            log.info(f"[REENTER] аванпост не найден по шаблону "
+                     f"(match={mx:.2f}), кликаю по запасной точке")
+    if not clicked:
+        pyautogui.click(OUTPOST_FALLBACK[0], OUTPOST_FALLBACK[1])
+    time.sleep(8)
+    blacklist.clear()  # после перезахода цели снова рабочие
 
 
 def motion_frame(sct, screen_center):
@@ -511,6 +567,7 @@ def main():
     clear_blocker = False            # после застревания рубим ближайшее
     window_lost_since = None         # с какого момента игра не в фокусе
     frozen_streak = 0                # подряд замёрзших шкал (рассинхрон)
+    recoveries = 0                   # восстановлений без единой добычи
     with mss() as sct:
         while _state["running"]:
             wait_if_paused()
@@ -542,12 +599,19 @@ def main():
             if status == "ok":
                 stats[name] += 1
                 frozen_streak = 0
+                recoveries = 0
                 log.info("[STATS] " + " | ".join(
                     f"{k}: {v}" for k, v in stats.items() if v))
             elif status == "frozen":
                 frozen_streak += 1
                 if frozen_streak >= FROZEN_STREAK_RELOAD:
-                    reload_game(blacklist)
+                    # эскалация: сначала F5; если после него так и не было
+                    # ни одной добычи — полный перезаход в зону
+                    if recoveries == 0:
+                        reload_game()
+                    else:
+                        reenter_zone(sct, blacklist)
+                    recoveries += 1
                     frozen_streak = 0
 
             # застряли -> следующей целью берём ближайший ресурс любого
