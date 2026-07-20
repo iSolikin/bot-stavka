@@ -26,6 +26,7 @@ Farm Bot для Kingdom Realms (North Wilds).
   4. python farm_bot.py
 """
 
+import logging
 import sys
 import time
 from pathlib import Path
@@ -98,7 +99,7 @@ MOVE_DIFF_THRESHOLD = 1.5     # средняя разница кадров, вы
 
 # Серверный рассинхрон: шкала видна, но не двигается. Лечится только
 # перезаходом, так что цель просто бросаем и идём к другой.
-FROZEN_BAR_TIMEOUT = 35       # сек: заполнение шкалы не меняется = зависло
+FROZEN_BAR_TIMEOUT = 20       # сек: заполнение шкалы не меняется = зависло
 BAR_PIXEL_TOLERANCE = 5       # на сколько пикселей должно меняться заполнение
 
 # Бот кликает только когда окно игры в фокусе. Если фокус ушёл (свернул,
@@ -112,6 +113,22 @@ EXIT_KEY = "f9"
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.05
 
+# ----------------------------- ЛОГИ ----------------------------------------
+# Пишем и в консоль, и в файл logs/farm_ГГГГММДД_ЧЧММСС.log (UTF-8).
+
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+log = logging.getLogger("farm_bot")
+log.setLevel(logging.INFO)
+_fmt = logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S")
+_file_handler = logging.FileHandler(
+    LOG_DIR / time.strftime("farm_%Y%m%d_%H%M%S.log"), encoding="utf-8")
+_file_handler.setFormatter(_fmt)
+log.addHandler(_file_handler)
+_console_handler = logging.StreamHandler(sys.stdout)
+_console_handler.setFormatter(_fmt)
+log.addHandler(_console_handler)
+
 # ----------------------------------------------------------------------------
 
 _state = {"paused": False, "running": True}
@@ -119,12 +136,12 @@ _state = {"paused": False, "running": True}
 
 def _toggle_pause():
     _state["paused"] = not _state["paused"]
-    print(("[PAUSE] пауза" if _state["paused"] else "[PAUSE] продолжаем"))
+    log.info(("[PAUSE] пауза" if _state["paused"] else "[PAUSE] продолжаем"))
 
 
 def _stop():
     _state["running"] = False
-    print("[EXIT] выходим...")
+    log.info("[EXIT] выходим...")
 
 
 def wait_if_paused():
@@ -147,20 +164,19 @@ def load_templates():
     for name, path in TEMPLATES.items():
         tpl = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if tpl is None:
-            print(f"[WARNING] нет шаблона {path.name} — '{name}' фармить не буду.")
+            log.info(f"[WARNING] нет шаблона {path.name} — '{name}' фармить не буду.")
         else:
             templates[name] = tpl
 
     if not templates:
-        print()
-        print("[ERROR] Нет ни одного шаблона! Боту не с чем сравнивать экран.")
-        print("Что сделать:")
-        print("  1. Открой игру, нажми Win+Shift+S")
-        print("  2. Выдели рамкой ОДНО дерево (только крону, без лишнего фона)")
-        print("  3. Вставь в Paint (Ctrl+V) и сохрани как:")
-        print(f"       {TEMPLATES['tree']}")
-        print("  4. То же самое с кучкой руды:")
-        print(f"       {TEMPLATES['ore']}")
+        log.info("[ERROR] Нет ни одного шаблона! Боту не с чем сравнивать экран.")
+        log.info("Что сделать:")
+        log.info("  1. Открой игру, нажми Win+Shift+S")
+        log.info("  2. Выдели рамкой ОДНО дерево (только крону, без лишнего фона)")
+        log.info("  3. Вставь в Paint (Ctrl+V) и сохрани как:")
+        log.info(f"       {TEMPLATES['tree']}")
+        log.info("  4. То же самое с кучкой руды:")
+        log.info(f"       {TEMPLATES['ore']}")
         sys.exit(1)
     return templates
 
@@ -221,7 +237,7 @@ def focus_game_window():
     """Возвращает окно игры на передний план (несколько способов)."""
     wins = [w for w in gw.getAllWindows() if GAME_WINDOW_TITLE in w.title]
     if not wins:
-        print(f"[FOCUS] окно '{GAME_WINDOW_TITLE}' не найдено — игра закрыта?")
+        log.info(f"[FOCUS] окно '{GAME_WINDOW_TITLE}' не найдено — игра закрыта?")
         return False
     w = wins[0]
 
@@ -281,8 +297,9 @@ def bar_pixels(sct, pos):
     """
     screen, off = grab_screen(sct)
     x, y = pos[0] - off[0], pos[1] - off[1]
-    x0, y0 = max(0, x - 90), max(0, y - 150)
-    x1, y1 = min(screen.shape[1], x + 90), max(1, y - 10)
+    # узкая зона: чтобы не цеплять шкалы соседних ресурсов и чужих игроков
+    x0, y0 = max(0, x - 70), max(0, y - 150)
+    x1, y1 = min(screen.shape[1], x + 70), max(1, y - 10)
     roi = screen[y0:y1, x0:x1]
     if roi.size == 0:
         return 0
@@ -311,7 +328,7 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
     """
     is_loot = name in LOOT_TYPES
     action = "подбираем" if is_loot else "добываем"
-    print(f"  -> {action} {name} в {pos}")
+    log.info(f"  -> {action} {name} в {pos}")
     pyautogui.click(pos[0], pos[1])
     clicks = 1
     last_click = time.time()
@@ -333,7 +350,7 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
             time.sleep(2)
             continue
         if not target_alive(sct, tpl, pos, (0, 0)):
-            print(f"  [OK] {name} {'подобрано' if is_loot else 'добыто'} "
+            log.info(f"  [OK] {name} {'подобрано' if is_loot else 'добыто'} "
                   f"(кликов: {clicks})")
             return "ok"
 
@@ -362,7 +379,7 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
                     prev_fill = fill
                     fill_changed_at = now
                 elif now - fill_changed_at > FROZEN_BAR_TIMEOUT:
-                    print(f"  [FROZEN] {name} в {pos}: шкала зависла "
+                    log.info(f"  [FROZEN] {name} в {pos}: шкала зависла "
                           f"(лаг сервера) — бросаем на "
                           f"{BLACKLIST_DEAD_TTL // 60} мин")
                     blacklist.append((pos, now + BLACKLIST_DEAD_TTL))
@@ -373,26 +390,26 @@ def harvest_target(sct, tpl, pos, name, blacklist, screen_center):
             elif standing and now - last_click > RECLICK_COOLDOWN:
                 # пришли, стоим, а добыча не началась (или прервалась)
                 if clicks < MAX_CLICKS_PER_TARGET:
-                    print(f"  [CLICK-2] добыча не началась — кликаем ещё раз")
+                    log.info(f"  [CLICK-2] добыча не началась — кликаем ещё раз")
                     pyautogui.click(pos[0], pos[1])
                     clicks += 1
                     last_click = now
                 elif now - max(last_bar, start) > NO_BAR_TIMEOUT:
-                    print(f"  [DEAD] {name} в {pos}: шкалы нет — не бьётся "
+                    log.info(f"  [DEAD] {name} в {pos}: шкалы нет — не бьётся "
                           f"(мал уровень?), пропускаем на "
                           f"{BLACKLIST_DEAD_TTL // 60} мин")
                     blacklist.append((pos, now + BLACKLIST_DEAD_TTL))
                     return "dead"
 
         if not harvesting and now - last_move > STUCK_TIMEOUT:
-            print(f"  [STUCK] застряли по пути к {name} в {pos} — "
+            log.info(f"  [STUCK] застряли по пути к {name} в {pos} — "
                   f"переключаемся на ближайший ресурс")
             blacklist.append((pos, now + BLACKLIST_TTL))
             return "stuck"
 
         time.sleep(0.5)
 
-    print(f"  [SKIP] таймаут по цели {name}, идём дальше")
+    log.info(f"  [SKIP] таймаут по цели {name}, идём дальше")
     blacklist.append((pos, time.time() + BLACKLIST_TTL))
     return "skip"
 
@@ -461,12 +478,12 @@ def main():
     sw, sh = pyautogui.size()
     screen_center = (sw // 2, sh // 2)
 
-    print("=" * 55)
-    print(" Farm Bot: деревья -> руда")
-    print(f" {PAUSE_KEY.upper()} — пауза | {EXIT_KEY.upper()} — выход | "
+    log.info("=" * 55)
+    log.info(" Farm Bot: деревья -> руда")
+    log.info(f" {PAUSE_KEY.upper()} — пауза | {EXIT_KEY.upper()} — выход | "
           f"мышь в левый верхний угол — аварийный стоп")
-    print("=" * 55)
-    print("Старт через 5 секунд — поднимаю окно игры...")
+    log.info("=" * 55)
+    log.info("Старт через 5 секунд — поднимаю окно игры...")
     time.sleep(5)
     if not game_window_active():
         focus_game_window()
@@ -484,9 +501,9 @@ def main():
                 now = time.time()
                 if window_lost_since is None:
                     window_lost_since = now
-                    print("[WAIT] окно игры не в фокусе — не кликаю, жду...")
+                    log.info("[WAIT] окно игры не в фокусе — не кликаю, жду...")
                 elif now - window_lost_since > WINDOW_GRACE:
-                    print("[FOCUS] возвращаю окно игры на передний план")
+                    log.info("[FOCUS] возвращаю окно игры на передний план")
                     focus_game_window()
                     window_lost_since = None
                 time.sleep(3)
@@ -497,7 +514,7 @@ def main():
                                          preferred, blacklist,
                                          any_nearest=clear_blocker)
             if name is None:
-                print("[IDLE] целей не видно, ждём 10 сек и сканируем снова...")
+                log.info("[IDLE] целей не видно, ждём 10 сек и сканируем снова...")
                 clear_blocker = False
                 time.sleep(10)
                 continue
@@ -506,7 +523,7 @@ def main():
                                     blacklist, screen_center)
             if status == "ok":
                 stats[name] += 1
-                print("[STATS] " + " | ".join(
+                log.info("[STATS] " + " | ".join(
                     f"{k}: {v}" for k, v in stats.items() if v))
 
             # застряли -> следующей целью берём ближайший ресурс любого
@@ -524,6 +541,10 @@ if __name__ == "__main__":
     try:
         main()
     except pyautogui.FailSafeException:
-        print("[FAILSAFE] мышь в углу экрана — бот остановлен.")
+        log.info("[FAILSAFE] мышь в углу экрана — бот остановлен.")
     except KeyboardInterrupt:
-        print("Остановлено (Ctrl+C).")
+        log.info("Остановлено (Ctrl+C).")
+    except SystemExit:
+        pass
+    except Exception:
+        log.exception("[CRASH] бот упал с ошибкой:")
